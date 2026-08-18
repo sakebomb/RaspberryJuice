@@ -100,6 +100,7 @@ The plugin jar is produced at `target/raspberryjuice-*.jar`; drop it in your Pap
 
 ## Version history
 
+ - 2.0.0 - modernized fork: runs on Paper 26.2 / Java 25 (down through Paper 1.21); block layer ported off pre-1.13 numeric-ID APIs to Material/BlockData via a legacy-ID bridge (protocol unchanged); Adventure chat/sign APIs; security & concurrency hardening; JUnit 5 + MockBukkit test suite and CI
  - 1.12.1 - hostname specified in config.yml
  - 1.12 - getEntities, removeEntities, pollProjectileHits, events calls by player and entity
  - 1.11 - spawnEntity, setDirection, setRotation, setPitch
