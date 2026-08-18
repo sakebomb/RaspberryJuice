@@ -1,0 +1,38 @@
+name: Release
+
+# Cut a GitHub Release with the built plugin jar when a version tag is pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build jar and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and test
+        run: |
+          chmod +x mvnw
+          ./mvnw -B clean verify
+
+      - name: Publish release with jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            target/raspberryjuice-*.jar \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

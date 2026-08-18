@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>net.zhuoweizhang</groupId>
     <artifactId>raspberryjuice</artifactId>
-    <version>1.12.1</version>
+    <version>2.0.0</version>
     <name>RaspberryJuice</name>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
