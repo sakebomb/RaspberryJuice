@@ -18,8 +18,11 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 
 /**
  * Characterization tests for the player.* / entity.* pos/tile/direction/rotation/pitch
@@ -35,8 +38,21 @@ import org.mockito.ArgumentCaptor;
  */
 class RemoteSessionEntityCommandTest {
 
-	private final World world = mock(World.class);
+	private World world;
 	private RaspberryJuicePlugin plugin;
+
+	@BeforeEach
+	void setUp() {
+		world = mock(World.class);
+	}
+
+	// Heavy Mockito use across many interrelated Bukkit types can leave the inline
+	// mock-maker in a corrupt state that bleeds between tests (order-dependent NPEs on
+	// stubbed plugin.getLogger()/getHostPlayer() on the CI JVM). Clear it after each test.
+	@AfterEach
+	void tearDown() {
+		Mockito.framework().clearInlineMocks();
+	}
 
 	/** Builds a session in ABSOLUTE mode with origin (0,0,0) so relative == absolute coords. */
 	private RemoteSession newSession() throws Exception {
