@@ -16,7 +16,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
+import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
@@ -119,7 +119,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	public void PlayerJoin(PlayerJoinEvent event) {
 		Player p = event.getPlayer();
 		Server server = getServer();
-		server.broadcastMessage("Welcome " + p.getPlayerListName());
+		server.broadcast(PlainText.component("Welcome " + PlainText.plain(p.playerListName())));
 	}
 
 	@EventHandler(ignoreCancelled=true)
@@ -146,7 +146,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 
 	@EventHandler(ignoreCancelled=true)
-	public void onChatPosted(AsyncPlayerChatEvent event) {
+	public void onChatPosted(AsyncChatEvent event) {
 		for (RemoteSession session: sessions) {
 			session.queueChatPostedEvent(event);
 		}
@@ -174,7 +174,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	public Player getNamedPlayer(String name) {
 		if (name == null) return null;
 		for(Player player : Bukkit.getOnlinePlayers()) {
-			if (name.equals(player.getPlayerListName())) {
+			//match against the plain-text list name (colour codes stripped) so a plain client name matches
+			if (name.equals(PlainText.plain(player.playerListName()))) {
 				return player;
 			}
 		}

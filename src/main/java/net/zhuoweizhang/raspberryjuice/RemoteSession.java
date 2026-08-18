@@ -26,7 +26,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
+import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.util.Vector;
 
@@ -58,7 +58,7 @@ public class RemoteSession {
 
 	protected ConcurrentLinkedQueue<PlayerInteractEvent> interactEventQueue = new ConcurrentLinkedQueue<PlayerInteractEvent>();
 
-	protected ConcurrentLinkedQueue<AsyncPlayerChatEvent> chatPostedQueue = new ConcurrentLinkedQueue<AsyncPlayerChatEvent>();
+	protected ConcurrentLinkedQueue<AsyncChatEvent> chatPostedQueue = new ConcurrentLinkedQueue<AsyncChatEvent>();
 
 	protected ConcurrentLinkedQueue<ProjectileHitEvent> projectileHitQueue = new ConcurrentLinkedQueue<ProjectileHitEvent>();
 
@@ -109,7 +109,7 @@ public class RemoteSession {
 		interactEventQueue.add(event);
 	}
 
-	public void queueChatPostedEvent(AsyncPlayerChatEvent event) {
+	public void queueChatPostedEvent(AsyncChatEvent event) {
 		chatPostedQueue.add(event);
 	}
 	
@@ -268,7 +268,7 @@ public class RemoteSession {
 				} else if (e instanceof Player) {
 					Player p = (Player) e;
 					//sending list name because plugin.getNamedPlayer() uses list name
-					send(p.getPlayerListName());
+					send(PlainText.plain(p.playerListName()));
 				} else if (e != null) {
 					send(e.getName());
 				}
@@ -320,7 +320,8 @@ public class RemoteSession {
 					chatMessage = chatMessage + args[count] + ",";
 				}
 				chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
-				server.broadcastMessage(chatMessage);
+				//interpret legacy section (§) colour codes so chat.post renders as it did with broadcastMessage(String)
+				server.broadcast(PlainText.legacy(chatMessage));
 
 			// events.clear
 			} else if (c.equals("events.clear")) {
@@ -937,12 +938,12 @@ public class RemoteSession {
 
 	private String getChatPosts(int entityId) {
 		StringBuilder b = new StringBuilder();
-		for (Iterator<AsyncPlayerChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
-			AsyncPlayerChatEvent event = iter.next();
+		for (Iterator<AsyncChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
+			AsyncChatEvent event = iter.next();
 			if (entityId == -1 || event.getPlayer().getEntityId() == entityId) {
 				b.append(event.getPlayer().getEntityId());
 				b.append(",");
-				b.append(event.getMessage());
+				b.append(PlainText.plain(event.message()));
 				b.append("|");
 				iter.remove();
 			}
@@ -973,13 +974,13 @@ public class RemoteSession {
 					b.append(",");
 					b.append(1); //blockFaceToNotch(event.getBlockFace()), but don't really care
 					b.append(",");
-					b.append(player.getPlayerListName());
+					b.append(PlainText.plain(player.playerListName()));
 					b.append(",");
 					Entity hitEntity = event.getHitEntity();
 					if(hitEntity!=null){
 						if(hitEntity instanceof Player){	
 							Player hitPlayer = (Player)hitEntity;
-							b.append(hitPlayer.getPlayerListName());
+							b.append(PlainText.plain(hitPlayer.playerListName()));
 						}else{
 							b.append(hitEntity.getName());
 						}
@@ -1002,8 +1003,8 @@ public class RemoteSession {
 			if (event.getPlayer().getEntityId() == entityId)
 				iter.remove();
 		}
-		for (Iterator<AsyncPlayerChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
-			AsyncPlayerChatEvent event = iter.next();
+		for (Iterator<AsyncChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
+			AsyncChatEvent event = iter.next();
 			if (event.getPlayer().getEntityId() == entityId)
 				iter.remove();
 		}
