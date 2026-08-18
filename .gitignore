@@ -64,3 +64,10 @@ tags
 # Build artifacts / IDE (moved out of tree)
 jars/
 .idea/
+
+# Python client build artifacts
+__pycache__/
+*.egg-info/
+.pytest_cache/
+build/
+dist/

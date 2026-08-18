@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "raspberryjuice"
+version = "2.0.0"
+description = "A friendly, typed Python client for the RaspberryJuice Minecraft plugin (mcpi protocol) - great for teaching Python with Minecraft."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+keywords = ["minecraft", "mcpi", "raspberryjuice", "education", "stem"]
+authors = [{ name = "RaspberryJuice contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Education",
+    "Topic :: Games/Entertainment",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+[project.urls]
+Homepage = "https://github.com/sakebomb/RaspberryJuice"
+Issues = "https://github.com/sakebomb/RaspberryJuice/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/raspberryjuice"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

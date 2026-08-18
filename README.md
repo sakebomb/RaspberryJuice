@@ -10,6 +10,10 @@
 A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Python (and other)
 `mcpi` clients drive Minecraft over a simple TCP protocol.
 
+**New:** a friendly, typed Python client lives in [`client/`](client/) — `pip install ./client`,
+then `from raspberryjuice import Minecraft`. It covers blocks, the turtle **agent**, **entity/mob
+control**, and world/player commands. See [`client/README.md`](client/README.md).
+
 ## Commands
 
 ### Commands supported
