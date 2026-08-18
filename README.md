@@ -1,6 +1,6 @@
 > **_NOTE:_** This is a modernized fork of the (end-of-life) upstream
 > [zhuowei/RaspberryJuice](https://github.com/zhuowei/RaspberryJuice). It has been updated to
-> build and run on current **Paper 1.21** servers and **Java 21**, verified end-to-end.
+> build and run on the latest **Paper 26.2** servers and **Java 25**, verified end-to-end.
 > Existing Python `mcpi` scripts keep working unchanged: legacy numeric block/entity ids are
 > bridged to the modern `BlockData` API via Bukkit's built-in legacy conversion. See
 > [`docs/modernization-notes.md`](docs/modernization-notes.md) for details.

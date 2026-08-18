@@ -6,11 +6,11 @@
     <name>RaspberryJuice</name>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>21</maven.compiler.release>
-        <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
+        <maven.compiler.release>25</maven.compiler.release>
+        <paper.version>26.2.build.112-stable</paper.version>
         <junit.version>5.14.4</junit.version>
         <mockito.version>5.23.0</mockito.version>
-        <mockbukkit.version>4.108.0</mockbukkit.version>
+        <mockbukkit.version>4.116.1</mockbukkit.version>
     </properties>
     <repositories>
         <repository>
@@ -33,7 +33,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>3.14.0</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -65,7 +65,7 @@
         </dependency>
         <dependency>
             <groupId>org.mockbukkit.mockbukkit</groupId>
-            <artifactId>mockbukkit-v1.21</artifactId>
+            <artifactId>mockbukkit-v26.2</artifactId>
             <version>${mockbukkit.version}</version>
             <scope>test</scope>
         </dependency>
