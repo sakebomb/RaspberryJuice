@@ -35,10 +35,36 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.14.0</version>
             </plugin>
+            <!-- Resolve dependency artifact paths into properties (used for the Mockito agent). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+                <configuration>
+                    <!-- Attach Mockito as a Java agent explicitly. On JDK 21+ the old
+                         self-attaching inline mock-maker is unreliable and corrupts mocks
+                         (ClassCastException in JavaPlugin.getLogger); an explicit agent is
+                         the Mockito-recommended fix. -->
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+                    <!-- Run each test class in a fresh JVM. MockBukkit (LegacyBlocksTest)
+                         installs heavy global Bukkit + instrumentation state that bleeds into
+                         the plain-Mockito tests when they share a JVM, causing order-dependent
+                         mock corruption. A fork per class keeps them isolated. -->
+                    <reuseForks>false</reuseForks>
+                    <forkCount>1</forkCount>
+                </configuration>
             </plugin>
         </plugins>
     </build>
