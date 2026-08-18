@@ -14,9 +14,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.World;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
@@ -196,6 +198,7 @@ public class RemoteSession {
 					|| handleEventAndPlayerCommands(c, args, world, server)
 					|| handleEntityAndWorldExtraCommands(c, args, world)
 					|| handleEntityControlCommands(c, args, world)
+					|| handleWorldPlayerControlCommands(c, args, world)
 					|| handleAgentCommands(c, args, world)) {
 				return;
 			}
@@ -604,6 +607,96 @@ public class RemoteSession {
 				return false;
 			}
 			return true;
+	}
+
+	// World & player control (#15): time/weather, region clone, and player game-mode / give.
+	private boolean handleWorldPlayerControlCommands(String c, String[] args, World world) {
+			// world.setTime(ticks) / world.getTime()
+			if (c.equals("world.setTime")) {
+				world.setTime(Long.parseLong(args[0]));
+			} else if (c.equals("world.getTime")) {
+				send(world.getTime());
+
+			// world.setWeather(0=clear, 1=rain, 2=thunder)
+			} else if (c.equals("world.setWeather")) {
+				int w = Integer.parseInt(args[0]);
+				world.setStorm(w >= 1);
+				world.setThundering(w >= 2);
+
+			// world.clone(x1,y1,z1,x2,y2,z2,dx,dy,dz) - copy a cuboid to a destination corner
+			} else if (c.equals("world.clone")) {
+				Location a = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location b = parseRelativeBlockLocation(args[3], args[4], args[5]);
+				Location dest = parseRelativeBlockLocation(args[6], args[7], args[8]);
+				if (exceedsBlockLimit(a, b)) {
+					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
+						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+					send("Fail");
+				} else {
+					cloneRegion(world, a, b, dest);
+				}
+
+			// player.setGameMode(0=survival,1=creative,2=adventure,3=spectator)
+			} else if (c.equals("player.setGameMode")) {
+				GameMode gm = gameMode(Integer.parseInt(args[0]));
+				if (gm != null) getCurrentPlayer().setGameMode(gm);
+
+			// player.give(blockId[,count]) - give the current player blocks
+			} else if (c.equals("player.give")) {
+				BlockData bd = LegacyBlocks.toBlockData(Integer.parseInt(args[0]), (byte) 0);
+				if (bd != null) {
+					int count = (args.length > 1 && !args[1].isEmpty()) ? Integer.parseInt(args[1]) : 1;
+					getCurrentPlayer().getInventory().addItem(new ItemStack(bd.getMaterial(), count));
+				}
+
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	/** Copy the cuboid [a..b] to the destination corner. Snapshots first so overlaps are safe. */
+	private void cloneRegion(World world, Location a, Location b, Location dest) {
+		int minX = Math.min(a.getBlockX(), b.getBlockX());
+		int maxX = Math.max(a.getBlockX(), b.getBlockX());
+		int minY = Math.min(a.getBlockY(), b.getBlockY());
+		int maxY = Math.max(a.getBlockY(), b.getBlockY());
+		int minZ = Math.min(a.getBlockZ(), b.getBlockZ());
+		int maxZ = Math.max(a.getBlockZ(), b.getBlockZ());
+		int sx = maxX - minX + 1, sy = maxY - minY + 1, sz = maxZ - minZ + 1;
+		int[] ids = new int[sx * sy * sz];
+		byte[] datas = new byte[sx * sy * sz];
+		int i = 0;
+		for (int y = 0; y < sy; y++) {
+			for (int x = 0; x < sx; x++) {
+				for (int z = 0; z < sz; z++) {
+					Block src = world.getBlockAt(minX + x, minY + y, minZ + z);
+					ids[i] = LegacyBlocks.legacyId(src);
+					datas[i] = LegacyBlocks.legacyData(src);
+					i++;
+				}
+			}
+		}
+		int dx = dest.getBlockX(), dy = dest.getBlockY(), dz = dest.getBlockZ();
+		i = 0;
+		for (int y = 0; y < sy; y++) {
+			for (int x = 0; x < sx; x++) {
+				for (int z = 0; z < sz; z++) {
+					updateBlock(world, dx + x, dy + y, dz + z, ids[i], datas[i]);
+					i++;
+				}
+			}
+		}
+	}
+
+	private GameMode gameMode(int v) {
+		switch (v) {
+			case 0: return GameMode.SURVIVAL;
+			case 1: return GameMode.CREATIVE;
+			case 2: return GameMode.ADVENTURE;
+			case 3: return GameMode.SPECTATOR;
+			default: return null;
+		}
 	}
 
 	// Entity/mob control (#14): drive spawned entities - pathfinding movement, facing, health,

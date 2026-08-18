@@ -77,6 +77,14 @@ Drive spawned entities (use `world.spawnEntity` to create one and get its id):
  - entity.setName(id,name) - set a visible name tag (name is a single token, no commas)
  - entity.setAI(id,0|1) - disable/enable the mob's AI (freeze or free it)
 
+### World & player control
+
+ - world.setTime(ticks) / world.getTime() - set/get the time of day (0-24000; ticks forward)
+ - world.setWeather(0|1|2) - 0 clear, 1 rain, 2 thunder
+ - world.clone(x1,y1,z1,x2,y2,z2,dx,dy,dz) - copy a cuboid to a destination corner (respects max-blocks)
+ - player.setGameMode(0|1|2|3) - survival / creative / adventure / spectator
+ - player.give(blockId[,count]) - give the current player blocks (default 1)
+
 ### Agent commands (turtle)
 
 A per-session, code-driven **agent** (a "turtle"): drive it with relative commands to move,
