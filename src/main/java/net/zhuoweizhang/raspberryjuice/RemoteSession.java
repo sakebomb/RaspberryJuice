@@ -6,9 +6,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.Socket;
-import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -17,6 +19,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -43,25 +46,25 @@ public class RemoteSession {
 	
 	private Thread outThread;
 
-	private ArrayDeque<String> inQueue = new ArrayDeque<String>();
+	private ConcurrentLinkedQueue<String> inQueue = new ConcurrentLinkedQueue<String>();
 
-	private ArrayDeque<String> outQueue = new ArrayDeque<String>();
+	private LinkedBlockingQueue<String> outQueue = new LinkedBlockingQueue<String>();
 
-	public boolean running = true;
+	public volatile boolean running = true;
 
-	public boolean pendingRemoval = false;
+	public volatile boolean pendingRemoval = false;
 
 	public RaspberryJuicePlugin plugin;
 
-	protected ArrayDeque<PlayerInteractEvent> interactEventQueue = new ArrayDeque<PlayerInteractEvent>();
-	
-	protected ArrayDeque<AsyncPlayerChatEvent> chatPostedQueue = new ArrayDeque<AsyncPlayerChatEvent>();
-	
-	protected ArrayDeque<ProjectileHitEvent> projectileHitQueue = new ArrayDeque<ProjectileHitEvent>();
+	protected ConcurrentLinkedQueue<PlayerInteractEvent> interactEventQueue = new ConcurrentLinkedQueue<PlayerInteractEvent>();
+
+	protected ConcurrentLinkedQueue<AsyncPlayerChatEvent> chatPostedQueue = new ConcurrentLinkedQueue<AsyncPlayerChatEvent>();
+
+	protected ConcurrentLinkedQueue<ProjectileHitEvent> projectileHitQueue = new ConcurrentLinkedQueue<ProjectileHitEvent>();
 
 	private int maxCommandsPerTick = 9000;
 
-	private boolean closed = false;
+	private volatile boolean closed = false;
 
 	private Player attachedPlayer = null;
 
@@ -103,17 +106,14 @@ public class RemoteSession {
 	}
 
 	public void queuePlayerInteractEvent(PlayerInteractEvent event) {
-		//plugin.getLogger().info(event.toString());
 		interactEventQueue.add(event);
 	}
 
 	public void queueChatPostedEvent(AsyncPlayerChatEvent event) {
-		//plugin.getLogger().info(event.toString());
 		chatPostedQueue.add(event);
 	}
 	
 	public void queueProjectileHitEvent(ProjectileHitEvent event) {
-		//plugin.getLogger().info(event.toString());
 
 		if (event.getEntityType() == EntityType.ARROW) {
 			Arrow arrow = (Arrow) event.getEntity();
@@ -155,11 +155,16 @@ public class RemoteSession {
 	}
 
 	protected void handleLine(String line) {
-		//System.out.println(line);
-		String methodName = line.substring(0, line.indexOf("("));
-		//split string into args, handles , inside " i.e. ","
-		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
-		//System.out.println(methodName + ":" + Arrays.toString(args));
+		int openParen = line.indexOf("(");
+		// reject malformed input up front so a single bad packet can't throw out of the tick loop
+		if (openParen < 0 || !line.endsWith(")")) {
+			plugin.getLogger().warning("Ignoring malformed command: " + line);
+			send("Fail");
+			return;
+		}
+		String methodName = line.substring(0, openParen);
+		// split args on commas (note: commas inside argument values are not escaped)
+		String[] args = line.substring(openParen + 1, line.length() - 1).split(",");
 		handleCommand(methodName, args);
 	}
 
@@ -175,18 +180,25 @@ public class RemoteSession {
 			// world.getBlock
 			if (c.equals("world.getBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				send(world.getBlockTypeIdAt(loc));
-				
+				send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
+
 			// world.getBlocks
 			} else if (c.equals("world.getBlocks")) {
 				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
-				send(getBlocks(loc1, loc2));
-				
+				if (exceedsBlockLimit(loc1, loc2)) {
+					plugin.getLogger().warning("world.getBlocks request of " + blockVolume(loc1, loc2)
+						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+					send("Fail");
+				} else {
+					send(getBlocks(loc1, loc2));
+				}
+
 			// world.getBlockWithData
 			} else if (c.equals("world.getBlockWithData")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				send(world.getBlockTypeIdAt(loc) + "," + world.getBlockAt(loc).getData());
+				Block block = world.getBlockAt(loc);
+				send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
 				
 			// world.setBlock
 			} else if (c.equals("world.setBlock")) {
@@ -199,7 +211,12 @@ public class RemoteSession {
 				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
 				int blockType = Integer.parseInt(args[6]);
 				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
-				setCuboid(loc1, loc2, blockType, data);
+				if (exceedsBlockLimit(loc1, loc2)) {
+					plugin.getLogger().warning("world.setBlocks request of " + blockVolume(loc1, loc2)
+						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+				} else {
+					setCuboid(loc1, loc2, blockType, data);
+				}
 				
 			// world.getPlayerIds
 			} else if (c.equals("world.getPlayerIds")) {
@@ -262,7 +279,7 @@ public class RemoteSession {
 				int entityType = Integer.parseInt(args[0]);
 				int removedEntitiesCount = 0;
 				for (Entity e : world.getEntities()) {
-					if (entityType == -1 || e.getType().getTypeId() == entityType)
+					if (entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
 					{
 						e.remove();
 						removedEntitiesCount++;
@@ -334,7 +351,9 @@ public class RemoteSession {
 			// player.getAbsPos
 			} else if (c.equals("player.getAbsPos")) {
 				Player currentPlayer = getCurrentPlayer();
-				send(currentPlayer.getLocation());
+				//send absolute coordinates as "x,y,z" (not Location.toString())
+				Location loc = currentPlayer.getLocation();
+				send(loc.getX() + "," + loc.getY() + "," + loc.getZ());
 				
 			// player.setAbsPos
 			} else if (c.equals("player.setAbsPos")) {
@@ -473,7 +492,6 @@ public class RemoteSession {
 			} else if (c.equals("entity.getPos")) {
 				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				//Player entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) {
 					send(locationToRelative(entity.getLocation()));
 				} else {
@@ -587,14 +605,14 @@ public class RemoteSession {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Block thisBlock = world.getBlockAt(loc);
 				//blockType should be 68 for wall sign or 63 for standing sign
-				int blockType = Integer.parseInt(args[3]);	
+				int blockType = Integer.parseInt(args[3]);
 				//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
 				//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
-				byte blockData = Byte.parseByte(args[4]); 
-				if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-					thisBlock.setTypeIdAndData(blockType, blockData, true);
+				byte blockData = Byte.parseByte(args[4]);
+				BlockData signData = LegacyBlocks.toBlockData(blockType, blockData);
+				if (signData != null && !thisBlock.getBlockData().equals(signData)) {
+					thisBlock.setBlockData(signData, true);
 				}
-				//plugin.getLogger().info("Creating sign at " + loc);
 				if ( thisBlock.getState() instanceof Sign ) {
 					Sign sign = (Sign) thisBlock.getState();
 					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
@@ -606,15 +624,15 @@ public class RemoteSession {
 			// world.spawnEntity
 			} else if (c.equals("world.spawnEntity")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Entity entity = world.spawnEntity(loc, EntityType.fromId(Integer.parseInt(args[3])));
+				Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
 				send(entity.getEntityId());
 
 			// world.getEntityTypes
 			} else if (c.equals("world.getEntityTypes")) {
 				StringBuilder bdr = new StringBuilder();				
 				for (EntityType entityType : EntityType.values()) {
-					if ( entityType.isSpawnable() && entityType.getTypeId() >= 0 ) {
-						bdr.append(entityType.getTypeId());
+					if ( entityType.isSpawnable() && LegacyEntities.typeId(entityType) >= 0 ) {
+						bdr.append(LegacyEntities.typeId(entityType));
 						bdr.append(",");
 						bdr.append(entityType.toString());
 						bdr.append("|");
@@ -628,15 +646,34 @@ public class RemoteSession {
 				send("Fail");
 			}
 		} catch (Exception e) {
-			
-			plugin.getLogger().warning("Error occured handling command");
-			e.printStackTrace();
+			//log with the offending command and full context instead of dumping to stdout
+			plugin.getLogger().log(java.util.logging.Level.WARNING, "Error handling command: " + c, e);
 			send("Fail");
-		
 		}
 	}
 
-	// create a cuboid of lots of blocks 
+	// number of blocks spanned by the cuboid between two corners (inclusive).
+	// Saturates to Long.MAX_VALUE on overflow so a huge span can't wrap to a small
+	// value and slip past the limit check (coords are clamped to int range, so an
+	// absurd request could otherwise multiply out to exactly 0).
+	long blockVolume(Location p1, Location p2) {
+		long dx = Math.abs((long) p1.getBlockX() - p2.getBlockX()) + 1;
+		long dy = Math.abs((long) p1.getBlockY() - p2.getBlockY()) + 1;
+		long dz = Math.abs((long) p1.getBlockZ() - p2.getBlockZ()) + 1;
+		try {
+			return Math.multiplyExact(Math.multiplyExact(dx, dy), dz);
+		} catch (ArithmeticException overflow) {
+			return Long.MAX_VALUE;
+		}
+	}
+
+	// true if the cuboid is larger than the configured max-blocks limit (0 = unlimited)
+	boolean exceedsBlockLimit(Location p1, Location p2) {
+		int max = plugin.getMaxBlocks();
+		return max > 0 && blockVolume(p1, p2) > max;
+	}
+
+	// create a cuboid of lots of blocks
 	private void setCuboid(Location pos1, Location pos2, int blockType, byte data) {
 		int minX, maxX, minY, maxY, minZ, maxZ;
 		World world = pos1.getWorld();
@@ -672,7 +709,7 @@ public class RemoteSession {
 		for (int y = minY; y <= maxY; ++y) {
 			 for (int x = minX; x <= maxX; ++x) {
 				 for (int z = minZ; z <= maxZ; ++z) {
-					blockData.append(new Integer(world.getBlockTypeIdAt(x, y, z)).toString() + ",");
+					blockData.append(LegacyBlocks.legacyId(world.getBlockAt(x, y, z))).append(",");
 				}
 			}
 		}
@@ -692,9 +729,11 @@ public class RemoteSession {
 	}
 	
 	private void updateBlock(Block thisBlock, int blockType, byte blockData) {
-		// check to see if the block is different - otherwise leave it 
-		if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-			thisBlock.setTypeIdAndData(blockType, blockData, true);
+		BlockData target = LegacyBlocks.toBlockData(blockType, blockData);
+		if (target == null) return;
+		// check to see if the block is different - otherwise leave it
+		if (!thisBlock.getBlockData().equals(target)) {
+			thisBlock.setBlockData(target, true);
 		}
 	}
 	
@@ -726,9 +765,10 @@ public class RemoteSession {
 
 
 	public Location parseRelativeBlockLocation(String xstr, String ystr, String zstr) {
-		int x = (int) Double.parseDouble(xstr);
-		int y = (int) Double.parseDouble(ystr);
-		int z = (int) Double.parseDouble(zstr);
+		// floor (not truncate-toward-zero) so negative fractional coords map to the right block
+		int x = (int) Math.floor(Double.parseDouble(xstr));
+		int y = (int) Math.floor(Double.parseDouble(ystr));
+		int z = (int) Math.floor(Double.parseDouble(zstr));
 		return parseLocation(origin.getWorld(), x, y, z, origin.getBlockX(), origin.getBlockY(), origin.getBlockZ());
 	}
 
@@ -789,7 +829,7 @@ public class RemoteSession {
 	private String getEntities(World world, int entityType) {
 		StringBuilder bdr = new StringBuilder();				
 		for (Entity e : world.getEntities()) {
-			if (((entityType == -1 && e.getType().getTypeId() >= 0) || e.getType().getTypeId() == entityType) && 
+			if (((entityType == -1 && LegacyEntities.typeId(e.getType()) >= 0) || LegacyEntities.typeId(e.getType()) == entityType) && 
 				e.getType().isSpawnable()) {
 				bdr.append(getEntityMsg(e));
 			}
@@ -801,7 +841,7 @@ public class RemoteSession {
 		Entity playerEntity = plugin.getEntity(entityId);
 		StringBuilder bdr = new StringBuilder();
 		for (Entity e : world.getEntities()) {
-			if (((entityType == -1 && e.getType().getTypeId() >= 0) || e.getType().getTypeId() == entityType) && 
+			if (((entityType == -1 && LegacyEntities.typeId(e.getType()) >= 0) || LegacyEntities.typeId(e.getType()) == entityType) && 
 				e.getType().isSpawnable() && 
 				getDistance(playerEntity, e) <= distance) {
 				bdr.append(getEntityMsg(e));
@@ -814,7 +854,7 @@ public class RemoteSession {
 		StringBuilder bdr = new StringBuilder();
 		bdr.append(entity.getEntityId());
 		bdr.append(",");
-		bdr.append(entity.getType().getTypeId());
+		bdr.append(LegacyEntities.typeId(entity.getType()));
 		bdr.append(",");
 		bdr.append(entity.getType().toString());
 		bdr.append(",");
@@ -831,7 +871,7 @@ public class RemoteSession {
 		int removedEntitiesCount = 0;
 		Entity playerEntityId = plugin.getEntity(entityId);
 		for (Entity e : world.getEntities()) {
-			if ((entityType == -1 || e.getType().getTypeId() == entityType) && getDistance(playerEntityId, e) <= distance)
+			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && getDistance(playerEntityId, e) <= distance)
 			{
 				e.remove();
 				removedEntitiesCount++;
@@ -957,9 +997,7 @@ public class RemoteSession {
 
 	public void send(String a) {
 		if (pendingRemoval) return;
-		synchronized(outQueue) {
-			outQueue.add(a);
-		}
+		outQueue.add(a);
 	}
 
 	public void close() {
@@ -1001,17 +1039,15 @@ public class RemoteSession {
 			while (running) {
 				try {
 					String newLine = in.readLine();
-					//System.out.println(newLine);
 					if (newLine == null) {
 						running = false;
 					} else {
 						inQueue.add(newLine);
-						//System.out.println("Added to in queue");
 					}
 				} catch (Exception e) {
 					// if its running raise an error
 					if (running) {
-						if (e.getMessage().equals("Connection reset")) {
+						if ("Connection reset".equals(e.getMessage())) {
 							plugin.getLogger().info("Connection reset");
 						} else {
 							e.printStackTrace();
@@ -1035,14 +1071,18 @@ public class RemoteSession {
 			plugin.getLogger().info("Starting output thread!");
 			while (running) {
 				try {
-					String line;
-					while((line = outQueue.poll()) != null) {
+					// block until a line is available (up to 200ms) instead of busy-waiting;
+					// the timeout lets the loop notice running=false on shutdown
+					String line = outQueue.poll(200, TimeUnit.MILLISECONDS);
+					if (line == null) continue;
+					out.write(line);
+					out.write('\n');
+					// drain any further queued lines, then flush once
+					while ((line = outQueue.poll()) != null) {
 						out.write(line);
 						out.write('\n');
 					}
 					out.flush();
-					Thread.yield();
-					Thread.sleep(1L);
 				} catch (Exception e) {
 					// if its running raise an error
 					if (running) {

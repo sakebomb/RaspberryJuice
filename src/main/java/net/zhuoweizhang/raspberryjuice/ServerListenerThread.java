@@ -9,7 +9,7 @@ public class ServerListenerThread implements Runnable {
 
 	public SocketAddress bindAddress;
 
-	public boolean running = true;
+	public volatile boolean running = true;
 
 	private RaspberryJuicePlugin plugin;
 

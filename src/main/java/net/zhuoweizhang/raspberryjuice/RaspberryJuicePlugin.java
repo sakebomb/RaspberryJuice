@@ -1,11 +1,10 @@
 package net.zhuoweizhang.raspberryjuice;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -27,10 +26,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public static final Set<Material> blockBreakDetectionTools = EnumSet.of(
 			Material.DIAMOND_SWORD,
-			Material.GOLD_SWORD, 
-			Material.IRON_SWORD, 
-			Material.STONE_SWORD, 
-			Material.WOOD_SWORD);
+			Material.GOLDEN_SWORD,
+			Material.IRON_SWORD,
+			Material.NETHERITE_SWORD,
+			Material.STONE_SWORD,
+			Material.WOODEN_SWORD);
 
 	public ServerListenerThread serverThread;
 
@@ -41,11 +41,17 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	private LocationType locationType;
 
 	private HitClickType hitClickType;
+
+	private int maxBlocks;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
 	public HitClickType getHitClickType() {
 		return hitClickType;
+	}
+	public int getMaxBlocks() {
+		return maxBlocks;
 	}
 
 	public void onEnable() {
@@ -53,9 +59,18 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
         this.saveDefaultConfig();
         //get host and port from config.yml
 		String hostname = this.getConfig().getString("hostname");
-		if (hostname == null || hostname.isEmpty()) hostname = "0.0.0.0";
+		//secure by default: an empty hostname binds to loopback only, not every interface
+		if (hostname == null || hostname.isEmpty()) hostname = "localhost";
 		int port = this.getConfig().getInt("port");
 		getLogger().info("Using host:port - " + hostname + ":" + Integer.toString(port));
+		if (hostname.equals("0.0.0.0")) {
+			getLogger().warning("The API socket is bound to 0.0.0.0 (all interfaces) and is "
+				+ "UNAUTHENTICATED - anyone who can reach port " + port + " can control the world. "
+				+ "Only use this on a trusted/firewalled network.");
+		}
+
+		//maximum blocks a single getBlocks/setBlocks may span (0 = unlimited)
+		maxBlocks = this.getConfig().getInt("max-blocks", 1000000);
 		
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();
@@ -77,8 +92,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		}
 		getLogger().info("Using " + hitClickType.name() + " clicks for hits");
 
-		//setup session array
-		sessions = new ArrayList<RemoteSession>();
+		//setup session list (copy-on-write so async event handlers can iterate it safely)
+		sessions = new CopyOnWriteArrayList<RemoteSession>();
 		
 		//create new tcp listener thread
 		try {
@@ -103,7 +118,6 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	@EventHandler
 	public void PlayerJoin(PlayerJoinEvent event) {
 		Player p = event.getPlayer();
-		//p.addPotionEffect(new PotionEffect(PotionEffectType.NIGHT_VISION, Integer.MAX_VALUE, 2, true, false));	// give night vision power
 		Server server = getServer();
 		server.broadcastMessage("Welcome " + p.getPlayerListName());
 	}
@@ -133,8 +147,6 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	@EventHandler(ignoreCancelled=true)
 	public void onChatPosted(AsyncPlayerChatEvent event) {
-		//debug
-		//getLogger().info("Chat event fired");
 		for (RemoteSession session: sessions) {
 			session.queueChatPostedEvent(event);
 		}
@@ -155,9 +167,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			newSession.kick("You've been banned from this server!");
 			return;
 		}
-		synchronized(sessions) {
-			sessions.add(newSession);
-		}
+		//CopyOnWriteArrayList is thread-safe for concurrent add/iterate
+		sessions.add(newSession);
 	}
 
 	public Player getNamedPlayer(String name) {
@@ -187,6 +198,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		}
 		//check all entities in host player's world
 		Player player = getHostPlayer();
+		if (player == null) return null; //no players online -> no world to search
 		World w = player.getWorld();
 		for (Entity e : w.getEntities()) {
 			if (e.getEntityId() == id) {
@@ -227,12 +239,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private class TickHandler implements Runnable {
 		public void run() {
-			Iterator<RemoteSession> sI = sessions.iterator();
-			while(sI.hasNext()) {
-				RemoteSession s = sI.next();
+			//for-each over the copy-on-write snapshot; remove() during iteration is safe
+			for (RemoteSession s : sessions) {
 				if (s.pendingRemoval) {
 					s.close();
-					sI.remove();
+					sessions.remove(s);
 				} else {
 					s.tick();
 				}

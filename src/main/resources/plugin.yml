@@ -1,4 +1,5 @@
 author: Zhuowei
+api-version: '1.21'
 database: false
 description: Implementation of the Minecraft PI modding API
 main: net.zhuoweizhang.raspberryjuice.RaspberryJuicePlugin

@@ -1,8 +1,14 @@
-> **_NOTE:_** RaspberryJuice is end of life, no further releases are planned. [Read about why](https://github.com/zhuowei/RaspberryJuice/pull/84#issuecomment-544295161). The repository will remain open for issues but no PRs will be accepted. Thank you for the fun times.
+> **_NOTE:_** This is a modernized fork of the (end-of-life) upstream
+> [zhuowei/RaspberryJuice](https://github.com/zhuowei/RaspberryJuice). It has been updated to
+> build and run on current **Paper 1.21** servers and **Java 21**, verified end-to-end.
+> Existing Python `mcpi` scripts keep working unchanged: legacy numeric block/entity ids are
+> bridged to the modern `BlockData` API via Bukkit's built-in legacy conversion. See
+> [`docs/modernization-notes.md`](docs/modernization-notes.md) for details.
 
 # RaspberryJuice
 
-A Bukkit plugin which implements the Minecraft Pi Socket API.
+A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Python (and other)
+`mcpi` clients drive Minecraft over a simple TCP protocol.
 
 ## Commands
 
@@ -66,10 +72,11 @@ Note - extra features are NOT guaranteed to be maintained in future releases, pa
 
 Modify config.yml:
 
- - hostname: - ip address or hostname to allow connections from, default is "0.0.0.0" (any). "localhost" would prevent remote clients from connecting.
+ - hostname: - address to bind to. **Defaults to `localhost` (loopback only)** because the API socket is unauthenticated. Set to `0.0.0.0` to accept connections from any host on the network - only do this on a trusted/firewalled network (a security warning is logged when you do).
  - port: 4711 - the default tcp port can be changed in config.yml
  - location: RELATIVE - determine whether locations are RELATIVE to the spawn point (default like pi) or ABSOLUTE
- - hitclick: RIGHT - determine whether hit events are triggered by LEFT clicks, RIGHT clicks or BOTH 
+ - hitclick: RIGHT - determine whether hit events are triggered by LEFT clicks, RIGHT clicks or BOTH
+ - max-blocks: 1000000 - maximum blocks a single getBlocks/setBlocks may span; oversized requests are rejected. 0 disables the cap.
 
 ## Libraries
 
@@ -79,13 +86,17 @@ You only need the modded libraries to use the extra features, the original libra
 
 ## Build
 
-To build RaspberryJuice, [download and install Maven](https://maven.apache.org/install.html), clone the repository, run `mvn package':
+Requires **JDK 21**. A Maven Wrapper is included, so you don't need a system Maven install.
 
 ```
-git clone https://github.com/zhuowei/RaspberryJuice
+git clone https://github.com/sakebomb/RaspberryJuice
 cd RaspberryJuice
-mvn package
+./mvnw package        # use mvnw.cmd on Windows
 ```
+
+The plugin jar is produced at `target/raspberryjuice-*.jar`; drop it in your Paper server's
+`plugins/` directory. Run the test suite with `./mvnw test`. There's also an end-to-end
+`scripts/smoke_test.py` you can run against a live server.
 
 ## Version history
 
