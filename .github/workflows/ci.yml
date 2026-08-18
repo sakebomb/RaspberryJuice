@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & unit tests (JDK 25)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build and run unit tests
+        run: |
+          chmod +x mvnw
+          ./mvnw -B clean test
+
+      - name: Package plugin jar
+        run: ./mvnw -B -q package -DskipTests
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: raspberryjuice-jar
+          path: target/raspberryjuice-*.jar
+          if-no-files-found: error
+
+  integration:
+    name: Live smoke on Paper 26.2 (LegacyBlocks bridge)
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Build plugin jar
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -q package -DskipTests
+
+      - name: Download latest Paper 26.2 server
+        run: |
+          set -euo pipefail
+          url=$(curl -sf "https://fill.papermc.io/v3/projects/paper/versions/26.2/builds/latest" \
+                -H "User-Agent: raspberryjuice-ci/1.0" \
+                | python3 -c "import sys,json; print(json.load(sys.stdin)['downloads']['server:default']['url'])")
+          echo "Downloading Paper from $url"
+          mkdir -p server/plugins
+          curl -sf -o server/paper.jar "$url" -H "User-Agent: raspberryjuice-ci/1.0"
+
+      - name: Configure server + install plugin
+        run: |
+          set -euo pipefail
+          cp target/raspberryjuice-*.jar server/plugins/
+          echo "eula=true" > server/eula.txt
+          cat > server/server.properties <<'EOF'
+          online-mode=false
+          level-type=minecraft:flat
+          spawn-monsters=false
+          spawn-animals=false
+          spawn-npcs=false
+          max-players=1
+          view-distance=4
+          EOF
+
+      - name: Boot server and run smoke test
+        run: |
+          set -euo pipefail
+          cd server
+          java -Xmx1500M -jar paper.jar nogui > run.log 2>&1 &
+          server_pid=$!
+          echo "Paper started (pid $server_pid); waiting for full startup..."
+          # Wait for "Done (" - full startup (world loaded + tick loop running). The plugin's
+          # "ThreadListener Started" is logged earlier during onEnable, before the server can
+          # actually process world commands, so waiting on it races the smoke test.
+          for i in $(seq 1 80); do
+            if grep -q "Done (" run.log; then break; fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              echo "::error::Paper exited before finishing startup"; tail -50 run.log; exit 1
+            fi
+            sleep 3
+          done
+          if ! grep -q "Done (" run.log; then
+            echo "::error::Timed out waiting for Paper to finish startup"; tail -80 run.log; exit 1
+          fi
+          if ! grep -q "ThreadListener Started" run.log; then
+            echo "::error::Paper started but the RaspberryJuice listener never came up"; tail -80 run.log; exit 1
+          fi
+          echo "Server fully up — running smoke test against the LegacyBlocks bridge"
+          set +e
+          python3 ../scripts/smoke_test.py localhost 4711
+          rc=$?
+          set -e
+          # graceful shutdown regardless of result
+          kill "$server_pid" 2>/dev/null || true
+          wait "$server_pid" 2>/dev/null || true
+          if [ "$rc" -ne 0 ]; then echo "::error::Smoke test failed"; tail -60 run.log; fi
+          exit "$rc"
+
+      - name: Upload server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-server-log
+          path: server/run.log
+          if-no-files-found: ignore

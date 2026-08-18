@@ -19,9 +19,13 @@ import time
 
 
 class Conn:
+    # Generous timeout: the first world command on a freshly generated server can block
+    # while the spawn chunk is generated/loaded, which is slow on CI runners.
+    TIMEOUT = 20
+
     def __init__(self, host, port):
-        self.sock = socket.create_connection((host, port), timeout=8)
-        self.sock.settimeout(8)
+        self.sock = socket.create_connection((host, port), timeout=self.TIMEOUT)
+        self.sock.settimeout(self.TIMEOUT)
         self.f = self.sock.makefile("rw", newline="\n")
 
     def send(self, cmd):
