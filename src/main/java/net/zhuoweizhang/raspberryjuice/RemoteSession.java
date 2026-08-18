@@ -372,16 +372,11 @@ public class RemoteSession {
 			
 			// player.getTile
 			}else if (c.equals("player.getTile")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(blockLocationToRelative(currentPlayer.getLocation()));
+				send(entityGetTile(getCurrentPlayer()));
 				
 			// player.setTile
 			} else if (c.equals("player.setTile")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				currentPlayer.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+				entitySetTile(getCurrentPlayer(), args[0], args[1], args[2]);
 				
 			// player.getAbsPos
 			} else if (c.equals("player.getAbsPos")) {
@@ -403,60 +398,35 @@ public class RemoteSession {
 
 			// player.getPos
 			} else if (c.equals("player.getPos")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(locationToRelative(currentPlayer.getLocation()));
+				send(entityGetPos(getCurrentPlayer()));
 
 			// player.setPos
 			} else if (c.equals("player.setPos")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+				entitySetPos(getCurrentPlayer(), args[0], args[1], args[2]);
 
 			// player.setDirection
 			} else if (c.equals("player.setDirection")) {
-				Double x = Double.parseDouble(args[0]);
-				Double y = Double.parseDouble(args[1]); 
-				Double z = Double.parseDouble(args[2]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setDirection(new Vector(x, y, z));
-				currentPlayer.teleport(loc);
+				entitySetDirection(getCurrentPlayer(), args[0], args[1], args[2]);
 
 			// player.getDirection
 			} else if (c.equals("player.getDirection")) {
-			Player currentPlayer = getCurrentPlayer();
-			send(currentPlayer.getLocation().getDirection().toString());
+				send(entityGetDirection(getCurrentPlayer()));
 
 			// player.setRotation
 			} else if (c.equals("player.setRotation")) {
-				Float yaw = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setYaw(yaw);
-				currentPlayer.teleport(loc);
+				entitySetRotation(getCurrentPlayer(), args[0]);
 
 			// player.getRotation
 			} else if (c.equals("player.getRotation")) {
-				Player currentPlayer = getCurrentPlayer();
-				float yaw = currentPlayer.getLocation().getYaw();
-				// turn bukkit's 0 - -360 to positive numbers 
-				if (yaw < 0) yaw = yaw * -1;
-				send(yaw);
+				send(entityGetRotation(getCurrentPlayer(), true));
 
 			// player.setPitch
 			} else if (c.equals("player.setPitch")) {
-				Float pitch = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
-				Location loc = currentPlayer.getLocation();
-				loc.setPitch(pitch);
-				currentPlayer.teleport(loc);
+				entitySetPitch(getCurrentPlayer(), args[0]);
 				
 			// player.getPitch
 			} else if (c.equals("player.getPitch")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(currentPlayer.getLocation().getPitch());
+				send(entityGetPitch(getCurrentPlayer()));
 
 			// player.getEntities
 			} else if (c.equals("player.getEntities")) {
@@ -507,124 +477,63 @@ public class RemoteSession {
 				
 			// entity.getTile
 			} else if (c.equals("entity.getTile")) {
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(blockLocationToRelative(entity.getLocation()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) send(entityGetTile(entity));
+				else entityNotFound(args[0], true);
 				
 			// entity.setTile
 			} else if (c.equals("entity.setTile")) {
-				String x = args[1], y = args[2], z = args[3];
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
-					Location loc = entity.getLocation();
-					entity.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
+				else entityNotFound(args[0], true);
 
 			// entity.getPos
 			} else if (c.equals("entity.getPos")) {
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(locationToRelative(entity.getLocation()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) send(entityGetPos(entity));
+				else entityNotFound(args[0], true);
 			
 			// entity.setPos
 			} else if (c.equals("entity.setPos")) {
-				String x = args[1], y = args[2], z = args[3];
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					//get entity's current location, so when they are moved we will use the same pitch and yaw (rotation)
-					Location loc = entity.getLocation();
-					entity.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
+				else entityNotFound(args[0], true);
 
 			// entity.setDirection
 			} else if (c.equals("entity.setDirection")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Double x = Double.parseDouble(args[1]);
-					Double y = Double.parseDouble(args[2]); 
-					Double z = Double.parseDouble(args[3]);
-					Location loc = entity.getLocation();
-					loc.setDirection(new Vector(x, y, z));
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
+				if (entity != null) entitySetDirection(entity, args[1], args[2], args[3]);
+				else entityNotFound(args[0], false);
 				
 			// entity.getDirection
 			} else if (c.equals("entity.getDirection")) {
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getDirection().toString());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) send(entityGetDirection(entity));
+				else entityNotFound(args[0], true);
 
 			// entity.setRotation
 			} else if (c.equals("entity.setRotation")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Float yaw = Float.parseFloat(args[1]);
-					Location loc = entity.getLocation();
-					loc.setYaw(yaw);
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
+				if (entity != null) entitySetRotation(entity, args[1]);
+				else entityNotFound(args[0], false);
 
 			// entity.getRotation
 			} else if (c.equals("entity.getRotation")) {
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getYaw());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) send(entityGetRotation(entity, false));
+				else entityNotFound(args[0], true);
 			
 			// entity.setPitch
 			} else if (c.equals("entity.setPitch")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					Float pitch = Float.parseFloat(args[1]);
-					Location loc = entity.getLocation();
-					loc.setPitch(pitch);
-					entity.teleport(loc);
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-				}
+				if (entity != null) entitySetPitch(entity, args[1]);
+				else entityNotFound(args[0], false);
 
 			// entity.getPitch
 			} else if (c.equals("entity.getPitch")) {
-				//get entity based on id
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) {
-					send(entity.getLocation().getPitch());
-				} else {
-					plugin.getLogger().info("Entity [" + args[0] + "] not found.");
-					send("Fail");
-				}
+				if (entity != null) send(entityGetPitch(entity));
+				else entityNotFound(args[0], true);
 				
 			// entity.getEntities
 			} else if (c.equals("entity.getEntities")) {
@@ -838,6 +747,70 @@ public class RemoteSession {
 		return parseLocation(loc.getX(), loc.getY(), loc.getZ(), origin.getX(), origin.getY(), origin.getZ());
 	}
 
+	// ---- shared entity geometry --------------------------------------------
+	// The player.* and entity.* pos/tile/direction/rotation/pitch commands differ only in how
+	// the target is resolved (attached player vs. lookup-by-id) and in their null policy; the
+	// geometry is identical, so it lives here once. getRotation is the sole asymmetry: the
+	// player variant flips a negative yaw to positive, the entity variant does not (flipYaw).
+
+	private String entityGetPos(Entity target) {
+		return locationToRelative(target.getLocation());
+	}
+
+	private void entitySetPos(Entity target, String x, String y, String z) {
+		Location loc = target.getLocation();
+		// keep current pitch/yaw so teleporting only moves the target
+		target.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+	}
+
+	private String entityGetTile(Entity target) {
+		return blockLocationToRelative(target.getLocation());
+	}
+
+	private void entitySetTile(Entity target, String x, String y, String z) {
+		Location loc = target.getLocation();
+		target.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+	}
+
+	private String entityGetDirection(Entity target) {
+		return target.getLocation().getDirection().toString();
+	}
+
+	private void entitySetDirection(Entity target, String x, String y, String z) {
+		Location loc = target.getLocation();
+		loc.setDirection(new Vector(Double.parseDouble(x), Double.parseDouble(y), Double.parseDouble(z)));
+		target.teleport(loc);
+	}
+
+	private float entityGetRotation(Entity target, boolean flipYaw) {
+		float yaw = target.getLocation().getYaw();
+		// player.getRotation turns bukkit's 0..-360 into positive numbers; entity.getRotation does not
+		if (flipYaw && yaw < 0) yaw = yaw * -1;
+		return yaw;
+	}
+
+	private void entitySetRotation(Entity target, String yaw) {
+		Location loc = target.getLocation();
+		loc.setYaw(Float.parseFloat(yaw));
+		target.teleport(loc);
+	}
+
+	private float entityGetPitch(Entity target) {
+		return target.getLocation().getPitch();
+	}
+
+	private void entitySetPitch(Entity target, String pitch) {
+		Location loc = target.getLocation();
+		loc.setPitch(Float.parseFloat(pitch));
+		target.teleport(loc);
+	}
+
+	/** Logs a not-found for an entity command; some commands also answer "Fail", others stay silent. */
+	private void entityNotFound(String id, boolean sendFail) {
+		plugin.getLogger().info("Entity [" + id + "] not found.");
+		if (sendFail) send("Fail");
+	}
+
 	private String parseLocation(double x, double y, double z, double originX, double originY, double originZ) {
 		return (x - originX) + "," + (y - originY) + "," + (z - originZ);
 	}
@@ -1036,6 +1009,13 @@ public class RemoteSession {
 	public void send(String a) {
 		if (pendingRemoval) return;
 		outQueue.add(a);
+	}
+
+	/** Visible for testing: drains responses queued for the socket without starting the I/O threads. */
+	java.util.List<String> drainSentForTest() {
+		java.util.List<String> sent = new java.util.ArrayList<String>();
+		outQueue.drainTo(sent);
+		return sent;
 	}
 
 	public void close() {
