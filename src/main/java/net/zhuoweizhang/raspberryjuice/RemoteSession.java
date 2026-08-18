@@ -36,6 +36,12 @@ import org.bukkit.util.Vector;
 
 public class RemoteSession {
 
+	/** IP_TOS bits requesting low-delay handling for the API socket. */
+	private static final int IP_TOS_LOW_DELAY = 0x10;
+
+	/** Default cap on commands processed per server tick before warning. */
+	private static final int DEFAULT_MAX_COMMANDS_PER_TICK = 9000;
+
 	private final LocationType locationType;
 
 	private Location origin;
@@ -66,7 +72,7 @@ public class RemoteSession {
 
 	protected ConcurrentLinkedQueue<ProjectileHitEvent> projectileHitQueue = new ConcurrentLinkedQueue<ProjectileHitEvent>();
 
-	private int maxCommandsPerTick = 9000;
+	private int maxCommandsPerTick = DEFAULT_MAX_COMMANDS_PER_TICK;
 
 	private volatile boolean closed = false;
 
@@ -82,7 +88,7 @@ public class RemoteSession {
 	public void init() throws IOException {
 		socket.setTcpNoDelay(true);
 		socket.setKeepAlive(true);
-		socket.setTrafficClass(0x10);
+		socket.setTrafficClass(IP_TOS_LOW_DELAY);
 		this.in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
 		this.out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream(), "UTF-8"));
 		startThreads();
@@ -1024,7 +1030,7 @@ public class RemoteSession {
 	}
 				
 	public void send(Object a) {
-		send(a.toString());
+		send(String.valueOf(a));
 	}
 
 	public void send(String a) {

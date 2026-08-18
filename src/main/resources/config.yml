@@ -17,6 +17,10 @@ location: RELATIVE
 # Determine whether hit events are triggered by LEFT clicks, RIGHT clicks or BOTH
 hitclick: RIGHT
 
+# Whether to broadcast a "Welcome <player>" message to everyone when a player joins.
+# Set to false to keep this scripting bridge silent on join.
+welcome-message: true
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.

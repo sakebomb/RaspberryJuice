@@ -44,6 +44,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private int maxBlocks;
 
+	private boolean welcomeMessage;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -71,7 +73,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//maximum blocks a single getBlocks/setBlocks may span (0 = unlimited)
 		maxBlocks = this.getConfig().getInt("max-blocks", 1000000);
-		
+
+		//whether to broadcast a "Welcome <player>" message to everyone on join
+		welcomeMessage = this.getConfig().getBoolean("welcome-message", true);
+
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();
 		try {
@@ -116,7 +121,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	
 	@EventHandler
-	public void PlayerJoin(PlayerJoinEvent event) {
+	public void onPlayerJoin(PlayerJoinEvent event) {
+		if (!welcomeMessage) return;
 		Player p = event.getPlayer();
 		Server server = getServer();
 		server.broadcast(PlainText.component("Welcome " + PlainText.plain(p.playerListName())));
