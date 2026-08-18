@@ -203,13 +203,13 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 				return p;
 			}
 		}
-		//check all entities in host player's world
-		Player player = getHostPlayer();
-		if (player == null) return null; //no players online -> no world to search
-		World w = player.getWorld();
-		for (Entity e : w.getEntities()) {
-			if (e.getEntityId() == id) {
-				return e;
+		// entity ids are unique server-wide, so search every loaded world. This also works with no
+		// players online (unlike keying off a "host" player's world) and reaches other worlds.
+		for (World w : getServer().getWorlds()) {
+			for (Entity e : w.getEntities()) {
+				if (e.getEntityId() == id) {
+					return e;
+				}
 			}
 		}
 		return null;

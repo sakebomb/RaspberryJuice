@@ -27,6 +27,9 @@ import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
@@ -192,6 +195,7 @@ public class RemoteSession {
 			if (handleWorldAndBulkEntityCommands(c, args, world)
 					|| handleEventAndPlayerCommands(c, args, world, server)
 					|| handleEntityAndWorldExtraCommands(c, args, world)
+					|| handleEntityControlCommands(c, args, world)
 					|| handleAgentCommands(c, args, world)) {
 				return;
 			}
@@ -600,6 +604,87 @@ public class RemoteSession {
 				return false;
 			}
 			return true;
+	}
+
+	// Entity/mob control (#14): drive spawned entities - pathfinding movement, facing, health,
+	// name, AI toggle. "set" commands are fire-and-forget (log-and-skip on a missing/unsuitable
+	// entity, never send a stray response); entity.getHealth is a query and answers a value or "Fail".
+	private boolean handleEntityControlCommands(String c, String[] args, World world) {
+			// entity.moveTo(id,x,y,z) - walk the mob to a point using real pathfinding
+			if (c.equals("entity.moveTo")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e instanceof Mob mob) {
+					mob.getPathfinder().moveTo(parseRelativeLocation(args[1], args[2], args[3]));
+				} else {
+					logEntityControlSkip(c, args[0]);
+				}
+
+			// entity.lookAt(id,x,y,z) - face a point
+			} else if (c.equals("entity.lookAt")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e != null) {
+					Location loc = e.getLocation();
+					Vector dir = parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
+					if (dir.lengthSquared() > 0) {
+						loc.setDirection(dir);
+						e.teleport(loc);
+					}
+				} else {
+					logEntityControlSkip(c, args[0]);
+				}
+
+			// entity.getHealth(id)
+			} else if (c.equals("entity.getHealth")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e instanceof LivingEntity le) {
+					send(le.getHealth());
+				} else {
+					send("Fail");
+				}
+
+			// entity.setHealth(id,health) - clamped to [0, max]
+			} else if (c.equals("entity.setHealth")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e instanceof LivingEntity le) {
+					double health = Math.max(0.0, Math.min(Double.parseDouble(args[1]), maxHealth(le)));
+					le.setHealth(health);
+				} else {
+					logEntityControlSkip(c, args[0]);
+				}
+
+			// entity.setName(id,name) - visible name tag (name is a single token, no commas)
+			} else if (c.equals("entity.setName")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e != null) {
+					e.customName(Component.text(args[1]));
+					e.setCustomNameVisible(true);
+				} else {
+					logEntityControlSkip(c, args[0]);
+				}
+
+			// entity.setAI(id,0|1) - freeze/unfreeze the mob's AI
+			} else if (c.equals("entity.setAI")) {
+				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				if (e instanceof LivingEntity le) {
+					le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
+				} else {
+					logEntityControlSkip(c, args[0]);
+				}
+
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	/** Max health from the entity's attribute, falling back to its current health. */
+	private double maxHealth(LivingEntity le) {
+		AttributeInstance a = le.getAttribute(Attribute.MAX_HEALTH);
+		return a != null ? a.getValue() : le.getHealth();
+	}
+
+	private void logEntityControlSkip(String c, String id) {
+		plugin.getLogger().info(c + ": entity [" + id + "] not found or unsuitable");
 	}
 
 	// The programmable agent (turtle): a per-session marker driven by relative commands.

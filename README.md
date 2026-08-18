@@ -66,6 +66,17 @@ A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Pyth
  - entity.pollChatPosts - get events back for posts to the chat for an entity
  - entity.clearEvents - clear events for this entity
 
+### Entity/mob control
+
+Drive spawned entities (use `world.spawnEntity` to create one and get its id):
+
+ - entity.moveTo(id,x,y,z) - walk a mob to a point using real pathfinding (mobs only)
+ - entity.lookAt(id,x,y,z) - turn the entity to face a point
+ - entity.getHealth(id) - the entity's current health (or `Fail` if not a living entity)
+ - entity.setHealth(id,health) - set health, clamped to [0, max]
+ - entity.setName(id,name) - set a visible name tag (name is a single token, no commas)
+ - entity.setAI(id,0|1) - disable/enable the mob's AI (freeze or free it)
+
 ### Agent commands (turtle)
 
 A per-session, code-driven **agent** (a "turtle"): drive it with relative commands to move,
