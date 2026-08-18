@@ -90,18 +90,24 @@ jobs:
           cd server
           java -Xmx1500M -jar paper.jar nogui > run.log 2>&1 &
           server_pid=$!
-          echo "Paper started (pid $server_pid); waiting for the API listener..."
-          for i in $(seq 1 60); do
-            if grep -q "ThreadListener Started" run.log; then break; fi
+          echo "Paper started (pid $server_pid); waiting for full startup..."
+          # Wait for "Done (" - full startup (world loaded + tick loop running). The plugin's
+          # "ThreadListener Started" is logged earlier during onEnable, before the server can
+          # actually process world commands, so waiting on it races the smoke test.
+          for i in $(seq 1 80); do
+            if grep -q "Done (" run.log; then break; fi
             if ! kill -0 "$server_pid" 2>/dev/null; then
-              echo "::error::Paper exited before the listener came up"; tail -50 run.log; exit 1
+              echo "::error::Paper exited before finishing startup"; tail -50 run.log; exit 1
             fi
             sleep 3
           done
-          if ! grep -q "ThreadListener Started" run.log; then
-            echo "::error::Timed out waiting for RaspberryJuice listener"; tail -80 run.log; exit 1
+          if ! grep -q "Done (" run.log; then
+            echo "::error::Timed out waiting for Paper to finish startup"; tail -80 run.log; exit 1
           fi
-          echo "Listener up — running smoke test against the LegacyBlocks bridge"
+          if ! grep -q "ThreadListener Started" run.log; then
+            echo "::error::Paper started but the RaspberryJuice listener never came up"; tail -80 run.log; exit 1
+          fi
+          echo "Server fully up — running smoke test against the LegacyBlocks bridge"
           set +e
           python3 ../scripts/smoke_test.py localhost 4711
           rc=$?
