@@ -176,7 +176,24 @@ public class RemoteSession {
 			
 			// get the world
 			World world = origin.getWorld();
-			
+			if (handleWorldAndBulkEntityCommands(c, args, world)
+					|| handleEventAndPlayerCommands(c, args, world, server)
+					|| handleEntityAndWorldExtraCommands(c, args, world)) {
+				return;
+			}
+			plugin.getLogger().warning(c + " is not supported.");
+			send("Fail");
+		} catch (Exception e) {
+			//log with the offending command and full context instead of dumping to stdout
+			plugin.getLogger().log(java.util.logging.Level.WARNING, "Error handling command: " + c, e);
+			send("Fail");
+		}
+	}
+
+	// The command handlers below are split from the original single dispatch chain into three
+	// contiguous groups; each returns true if it handled the command. Bodies are unchanged.
+
+	private boolean handleWorldAndBulkEntityCommands(String c, String[] args, World world) {
 			// world.getBlock
 			if (c.equals("world.getBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
@@ -286,9 +303,16 @@ public class RemoteSession {
 					}
 				}
 				send(removedEntitiesCount);
-				
+
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	private boolean handleEventAndPlayerCommands(String c, String[] args, World world, Server server) {
 			// chat.post
-			} else if (c.equals("chat.post")) {
+			if (c.equals("chat.post")) {
 				//create chat message from args as it was split by ,
 				String chatMessage = "";
 				int count;
@@ -458,9 +482,16 @@ public class RemoteSession {
 			} else if (c.equals("player.events.clear")) {
 				Player currentPlayer = getCurrentPlayer();
 				clearEntityEvents(currentPlayer.getEntityId());
-				
+
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	private boolean handleEntityAndWorldExtraCommands(String c, String[] args, World world) {
 			// world.getHeight
-			} else if (c.equals("world.getHeight")) {
+			if (c.equals("world.getHeight")) {
 				send(world.getHighestBlockYAt(parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
 				
 			// entity.getTile
@@ -640,16 +671,10 @@ public class RemoteSession {
 				}
 				send(bdr.toString());
 
-			// not a command which is supported
 			} else {
-				plugin.getLogger().warning(c + " is not supported.");
-				send("Fail");
+				return false;
 			}
-		} catch (Exception e) {
-			//log with the offending command and full context instead of dumping to stdout
-			plugin.getLogger().log(java.util.logging.Level.WARNING, "Error handling command: " + c, e);
-			send("Fail");
-		}
+			return true;
 	}
 
 	// number of blocks spanned by the cuboid between two corners (inclusive).
