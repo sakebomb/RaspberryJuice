@@ -86,7 +86,8 @@ You only need the modded libraries to use the extra features, the original libra
 
 ## Build
 
-Requires **JDK 21**. A Maven Wrapper is included, so you don't need a system Maven install.
+Requires **JDK 25** (Paper 26.2 is compiled to Java 25 bytecode). A Maven Wrapper is
+included, so you don't need a system Maven install.
 
 ```
 git clone https://github.com/sakebomb/RaspberryJuice
