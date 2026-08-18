@@ -65,7 +65,25 @@ A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Pyth
  - entity.pollBlockHits - get block hits for an entity
  - entity.pollChatPosts - get events back for posts to the chat for an entity
  - entity.clearEvents - clear events for this entity
- 
+
+### Agent commands (turtle)
+
+A per-session, code-driven **agent** (a "turtle"): drive it with relative commands to move,
+turn, and place blocks - a hands-on way to teach sequencing, loops, and functions. Movement
+is grid-aligned teleport-step. Commands before `agent.spawn` answer `Fail`.
+
+ - agent.spawn() / agent.spawn(x,y,z) - create the agent at the player (or a given block); one per session
+ - agent.despawn() - remove the agent
+ - agent.getPos() - the agent's block position (relative coords)
+ - agent.getRotation() - facing as a cardinal yaw: 0=south, 90=west, 180=north, 270=east
+ - agent.forward(n) / agent.back(n) - move n blocks along/against facing (n optional, default 1)
+ - agent.up(n) / agent.down(n) - move n blocks vertically
+ - agent.turnLeft() / agent.turnRight() - rotate the facing 90°
+ - agent.setBlock(id[,data]) - place a block at the agent's position (id 0 clears to air)
+
+Example: a loop that draws a 4×4 square outline is just
+`for _ in range(4): [conn.send(f"agent.setBlock(1)\nagent.forward()\n") ...]; conn.send("agent.turnRight()\n")`.
+
 Note - extra features are NOT guaranteed to be maintained in future releases, particularly if updates are made to the original Pi API which replace the functionality
 
 ## Config

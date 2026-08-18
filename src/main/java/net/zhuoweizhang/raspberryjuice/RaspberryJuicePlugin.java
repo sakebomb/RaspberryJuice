@@ -232,11 +232,14 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 				e.printStackTrace();
 			}
 		}
-		serverThread.running = false;
-		try {
-			serverThread.serverSocket.close();
-		} catch (Exception e) {
-			e.printStackTrace();
+		// serverThread can be null if onEnable failed to bind the socket (e.g. port in use)
+		if (serverThread != null) {
+			serverThread.running = false;
+			try {
+				serverThread.serverSocket.close();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
 		}
 
 		sessions = null;

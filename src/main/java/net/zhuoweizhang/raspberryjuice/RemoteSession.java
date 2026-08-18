@@ -78,6 +78,9 @@ public class RemoteSession {
 
 	private Player attachedPlayer = null;
 
+	// the per-session programmable agent (turtle), null until agent.spawn() is called
+	private Agent agent = null;
+
 	public RemoteSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException {
 		this.socket = socket;
 		this.plugin = plugin;
@@ -188,7 +191,8 @@ public class RemoteSession {
 			World world = origin.getWorld();
 			if (handleWorldAndBulkEntityCommands(c, args, world)
 					|| handleEventAndPlayerCommands(c, args, world, server)
-					|| handleEntityAndWorldExtraCommands(c, args, world)) {
+					|| handleEntityAndWorldExtraCommands(c, args, world)
+					|| handleAgentCommands(c, args, world)) {
 				return;
 			}
 			plugin.getLogger().warning(c + " is not supported.");
@@ -596,6 +600,89 @@ public class RemoteSession {
 				return false;
 			}
 			return true;
+	}
+
+	// The programmable agent (turtle): a per-session marker driven by relative commands.
+	// Movement/query before agent.spawn() answers "Fail"; agent.* is an additive namespace
+	// so existing mcpi clients are unaffected.
+	private boolean handleAgentCommands(String c, String[] args, World world) {
+			// agent.spawn - at given block, else at the current player
+			if (c.equals("agent.spawn")) {
+				int bx, by, bz;
+				float yaw;
+				if (args.length >= 3 && !args[0].isEmpty()) {
+					Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+					bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+					yaw = 0f;
+				} else {
+					Location loc = getCurrentPlayer().getLocation();
+					bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+					yaw = loc.getYaw();
+				}
+				if (agent != null) agent.remove();
+				agent = Agent.spawn(plugin, world, bx, by, bz, yaw);
+
+			// agent.despawn
+			} else if (c.equals("agent.despawn")) {
+				if (agent != null) { agent.remove(); agent = null; }
+
+			// agent.getPos - block position, in the session's relative frame
+			} else if (c.equals("agent.getPos")) {
+				if (!requireAgent()) return true;
+				send(blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
+
+			// agent.getRotation - facing as a cardinal yaw (0=S,90=W,180=N,270=E)
+			} else if (c.equals("agent.getRotation")) {
+				if (!requireAgent()) return true;
+				send(agent.facing());
+
+			// relative movement (n optional, default 1)
+			} else if (c.equals("agent.forward")) {
+				if (!requireAgent()) return true;
+				agent.forward(stepArg(args));
+			} else if (c.equals("agent.back")) {
+				if (!requireAgent()) return true;
+				agent.back(stepArg(args));
+			} else if (c.equals("agent.up")) {
+				if (!requireAgent()) return true;
+				agent.up(stepArg(args));
+			} else if (c.equals("agent.down")) {
+				if (!requireAgent()) return true;
+				agent.down(stepArg(args));
+			} else if (c.equals("agent.turnLeft")) {
+				if (!requireAgent()) return true;
+				agent.turnLeft();
+			} else if (c.equals("agent.turnRight")) {
+				if (!requireAgent()) return true;
+				agent.turnRight();
+
+			// agent.setBlock - place a block at the agent's position (id 0 clears to air)
+			} else if (c.equals("agent.setBlock")) {
+				if (!requireAgent()) return true;
+				int id = Integer.parseInt(args[0]);
+				byte data = (args.length > 1 ? Byte.parseByte(args[1]) : (byte) 0);
+				updateBlock(world, new Location(world, agent.x(), agent.y(), agent.z()), id, data);
+
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	/** Answers "Fail" and clears a dead/never-spawned agent; true only if a live agent exists. */
+	private boolean requireAgent() {
+		if (agent == null || !agent.isValid()) {
+			agent = null;
+			send("Fail");
+			return false;
+		}
+		return true;
+	}
+
+	/** Parses an optional step count (default 1) from an agent movement command. */
+	private int stepArg(String[] args) {
+		if (args.length >= 1 && !args[0].isEmpty()) return Integer.parseInt(args[0]);
+		return 1;
 	}
 
 	// number of blocks spanned by the cuboid between two corners (inclusive).
@@ -1022,6 +1109,9 @@ public class RemoteSession {
 		if (closed) return;
 		running = false;
 		pendingRemoval = true;
+
+		// remove the agent marker so it doesn't orphan (close() runs on the main thread)
+		if (agent != null) { agent.remove(); agent = null; }
 
 		//wait for threads to stop
 		try {
