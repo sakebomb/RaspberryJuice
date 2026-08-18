@@ -60,3 +60,7 @@ tmp/
 tags
 .vscode
 /.pydevproject
+
+# Build artifacts / IDE (moved out of tree)
+jars/
+.idea/
