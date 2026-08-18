@@ -8,6 +8,7 @@ import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -20,6 +21,8 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.block.sign.Side;
+import org.bukkit.block.sign.SignSide;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -27,6 +30,7 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.text.Component;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.util.Vector;
 
@@ -647,8 +651,9 @@ public class RemoteSession {
 				}
 				if ( thisBlock.getState() instanceof Sign ) {
 					Sign sign = (Sign) thisBlock.getState();
+					SignSide front = sign.getSide(Side.FRONT);
 					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
-						sign.setLine(i-5, args[i]);
+						front.line(i-5, Component.text(args[i]));
 					}
 					sign.update();
 				}
@@ -966,9 +971,10 @@ public class RemoteSession {
 			if (entityId == -1 || shooter.getEntityId() == entityId) {
 				if (shooter instanceof Player) {
 					Player player = (Player)shooter;
-					Block block = arrow.getAttachedBlock(); 
-					if (block == null)
-						block = arrow.getLocation().getBlock();
+					List<Block> attachedBlocks = arrow.getAttachedBlocks();
+					Block block = attachedBlocks.isEmpty()
+						? arrow.getLocation().getBlock()
+						: attachedBlocks.get(0);
 					Location loc = block.getLocation();
 					b.append(blockLocationToRelative(loc));
 					b.append(",");
