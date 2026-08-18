@@ -1,0 +1,48 @@
+name: Bug report
+description: Something isn't working
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: What did you do? Include the mcpi/socket commands or Python snippet if relevant.
+      placeholder: |
+        1. Start Paper 26.2 with raspberryjuice-2.0.0.jar
+        2. Connect and send `world.getBlock(0,0,0)`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: server
+    attributes:
+      label: Server version
+      placeholder: "Paper 26.2 build 112"
+    validations:
+      required: true
+  - type: input
+    id: java
+    attributes:
+      label: Java version
+      placeholder: "Temurin 25.0.3"
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client
+      description: Which mcpi client / library and version are you driving it with?
+      placeholder: "python mcpi 0.1.x / raw socket"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Server console output or client errors. Please redact anything sensitive.
+      render: shell
