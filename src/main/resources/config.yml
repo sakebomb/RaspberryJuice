@@ -42,6 +42,24 @@ allow-global-events: false
 # confidentiality. See SECURITY.md.
 auth-token: ''
 
+# Optional per-player bind secrets. auth-token controls WHO may connect; player-tokens controls
+# WHICH player a connection may bind to via setPlayer - and therefore whose reactive event feed
+# (moves/deaths/block breaks+places) it may observe. Leave EMPTY (default) and setPlayer(<name>)
+# binds by name with no token, as before - right for single-user / trusted servers.
+#
+# Set one entry per player (name: secret) to enforce authorization. Once this map is non-empty,
+# setPlayer is FAIL-CLOSED: a client must send setPlayer(<name>,<token>) and it succeeds only if
+# that player is listed AND the token matches. An unlisted player, a wrong token, or a missing
+# token all get "Fail" and bind to nobody. Hand each user only their own player's token so a
+# connection can observe only the player it owns. NOTE: the socket is not encrypted, so these
+# tokens (like auth-token) protect against unauthorized binding, not sniffing - tunnel the port.
+# Avoid commas in tokens: command arguments are split on commas and not escaped.
+player-tokens: {}
+# Example:
+# player-tokens:
+#   Alice: alice-long-random-secret
+#   Bob: bob-long-random-secret
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.

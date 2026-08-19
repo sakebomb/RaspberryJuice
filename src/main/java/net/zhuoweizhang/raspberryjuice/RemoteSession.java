@@ -575,18 +575,39 @@ public class RemoteSession {
 		server.broadcast(PlainText.legacy(chatMessage));
 	}
 
-	// setPlayer(name): bind this connection to a named online player. Drives both command
-	// execution (attachedPlayer) and reactive-event scoping (boundPlayerId, matched by UUID
-	// so it survives relogs). Replies "1" on success, "Fail" if that player isn't online. #44
+	// setPlayer(name[,token]): bind this connection to a named online player. Drives both command
+	// execution (attachedPlayer) and reactive-event scoping (boundPlayerId, matched by UUID so it
+	// survives relogs). Replies "1" on success, "Fail" if that player isn't online (#44).
+	//
+	// When player-tokens is configured (#47) the bind is fail-closed: it succeeds only if the target
+	// is listed AND the supplied token matches - an unlisted player or a wrong/missing token gets
+	// "Fail" and leaves the session bound to nobody, so it cannot observe that player's event feed.
+	// With no player-tokens configured, any online player binds by name as before.
 	void cmdSetPlayer(String[] args, World world, Server server) {
 		Player target = plugin.getNamedPlayer(args.length > 0 ? args[0] : null);
-		if (target != null) {
-			attachedPlayer = target;
-			boundPlayerId = target.getUniqueId();
-			send("1");
-		} else {
+		if (target == null) {
 			send("Fail");
+			return;
 		}
+		if (plugin.isPlayerTokensConfigured() && !isAuthorizedToBind(target, args)) {
+			send("Fail");
+			return;
+		}
+		attachedPlayer = target;
+		boundPlayerId = target.getUniqueId();
+		send("1");
+	}
+
+	// Does this setPlayer request carry the right token for the target player? True only when the
+	// player is listed in player-tokens AND the supplied second arg matches (constant-time compare,
+	// same as the auth handshake). An unlisted player returns false -> fail closed. #47
+	private boolean isAuthorizedToBind(Player target, String[] args) {
+		String expected = plugin.getPlayerToken(target.getName());
+		if (expected == null) return false; // player not listed -> not bindable
+		String provided = args.length > 1 ? args[1] : "";
+		byte[] a = provided.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		byte[] b = expected.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		return java.security.MessageDigest.isEqual(a, b);
 	}
 
 	// ==== command handlers: event polls (global / per-entity / per-player) ====

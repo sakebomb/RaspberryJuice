@@ -21,11 +21,19 @@ a teaching/scripting bridge — but it means:
   by UUID. An **unbound** connection on a multi-player server receives **no** player's events
   at all (fail closed) — it can no longer fall back to observing an arbitrary player. The lone
   single-player / single-user case still works without binding (there's no other player to
-  leak). Note that `setPlayer` takes any online player's name and performs **no ownership
-  check** — `auth-token` gates *who may connect*, not *which player a connection may bind to or
-  observe*. On a server with mutually-distrusting clients, any authenticated client can
-  `setPlayer("<someone-else>")` and watch that player's event feed; do not rely on `setPlayer`
-  for isolation between untrusted parties. Per-player authorization is tracked in issue #47.
+  leak).
+- **`setPlayer` binding can be authorized per player (`player-tokens`).** `auth-token` gates
+  *who may connect*, not *which player a connection may bind to or observe*. By default
+  `setPlayer(<name>)` accepts any online player's name with no ownership check, so on a server
+  with mutually-distrusting clients any authenticated client could `setPlayer("<someone-else>")`
+  and watch that player's event feed. To close this, set a `player-tokens` map in `config.yml`
+  (`name: secret`). Once it is non-empty, binding is **fail closed**: `setPlayer(<name>,<token>)`
+  succeeds only for a **listed** player whose token matches (constant-time compare); an unlisted
+  player, a wrong token, or a missing token all get `Fail` and leave the connection bound to
+  nobody. Hand each user only their own player's token and a connection can bind to — and observe
+  — only the player it is authorized for. Leave `player-tokens` empty (the default) for
+  single-user / trusted deployments, where `setPlayer(<name>)` keeps working with no token. The
+  tokens travel the same unencrypted socket as everything else, so tunnel the port (see below).
 
 ## Hardening a networked deployment
 
