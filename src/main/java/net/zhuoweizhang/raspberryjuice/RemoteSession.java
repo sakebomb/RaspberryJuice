@@ -111,10 +111,17 @@ public class RemoteSession {
 	// Main-thread-only access (all commands run on the tick), so a plain HashSet is fine.
 	protected final java.util.Set<Integer> ownedEntities = new java.util.HashSet<Integer>();
 
+	// optional shared-secret auth (config auth-token): true from the start when no token is set
+	private boolean authenticated = true;
+	private int authFailures = 0;
+	private static final int MAX_AUTH_FAILURES = 3;
+
 	public RemoteSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException {
 		this.socket = socket;
 		this.plugin = plugin;
 		this.locationType = plugin.getLocationType();
+		String token = plugin.getAuthToken();
+		this.authenticated = (token == null || token.isEmpty()); // require auth only if a token is configured
 		init();
 	}
 
@@ -234,7 +241,18 @@ public class RemoteSession {
 	}
 
 	protected void handleCommand(String c, String[] args) {
-		
+
+		// optional auth handshake: auth(<token>) is always handled; until authenticated, every
+		// other command is rejected (so an unauthorized connection can do nothing).
+		if (c.equals("auth")) {
+			tryAuth(args);
+			return;
+		}
+		if (!authenticated) {
+			send("Fail");
+			return;
+		}
+
 		try {
 			// get the server
 			Server server = plugin.getServer();
@@ -256,6 +274,29 @@ public class RemoteSession {
 			//log with the offending command and full context instead of dumping to stdout
 			plugin.getLogger().log(java.util.logging.Level.WARNING, "Error handling command: " + c, e);
 			send("Fail");
+		}
+	}
+
+	/** Handle the auth(<token>) handshake: constant-time compare, kick after too many failures. */
+	private void tryAuth(String[] args) {
+		if (authenticated) {
+			send("1");
+			return;
+		}
+		String provided = args.length > 0 ? args[0] : "";
+		byte[] a = provided.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		byte[] b = plugin.getAuthToken().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		if (java.security.MessageDigest.isEqual(a, b)) {
+			authenticated = true;
+			send("1");
+		} else {
+			authFailures++;
+			send("Fail");
+			if (authFailures >= MAX_AUTH_FAILURES) {
+				plugin.getLogger().warning("Closing " + socket.getRemoteSocketAddress()
+					+ " after " + authFailures + " failed auth attempts.");
+				close();
+			}
 		}
 	}
 

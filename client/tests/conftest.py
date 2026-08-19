@@ -58,10 +58,10 @@ def server_and_mc():
     """Yields (fake_server, connected Minecraft). Override responses via the factory below."""
     servers: list[FakeServer] = []
 
-    def make(responses: dict[str, str] | None = None):
+    def make(responses: dict[str, str] | None = None, token: str | None = None):
         srv = FakeServer(responses)
         servers.append(srv)
-        return srv, Minecraft.connect("127.0.0.1", srv.port)
+        return srv, Minecraft.connect("127.0.0.1", srv.port, token=token)
 
     yield make
 

@@ -14,6 +14,43 @@ a teaching/scripting bridge — but it means:
   the game world. The `max-blocks` cap guards against cuboid DoS; id-targeted `entity.*`
   mutators refuse to act on players; but the surface is still powerful.
 
+## Hardening a networked deployment
+
+If you need clients to connect from other machines, do **both** of these — they solve
+different problems:
+
+### 1. Require an auth token (who may connect)
+Set a shared secret in `config.yml`:
+
+```yaml
+auth-token: 'some-long-random-string'
+```
+
+Clients must then authenticate before any other command by sending `auth(<token>)` — the
+Python client does this for you: `Minecraft.connect(host, port, token="…")`. Until
+authenticated, every command is refused, and the connection is dropped after a few bad
+attempts. This stops *unauthorized connections*.
+
+> **Note on upgrades:** Bukkit only writes new config keys to a fresh `config.yml`. If you
+> upgraded from an older version, `auth-token` won't be in your file yet — add the line
+> manually (any missing key falls back to its default), or delete `config.yml` to regenerate.
+
+### 2. Encrypt the transport (who may read/tamper)
+The socket itself is **plaintext**, so the auth token — and everything else — is visible to
+anyone who can sniff the network. RaspberryJuice deliberately does *not* build in TLS
+(certificate management is a poor fit for a teaching tool). Instead, tunnel the port with a
+proven tool:
+
+- **Tailscale / WireGuard (recommended):** put the server and clients on the same tailnet and
+  keep `hostname: localhost` (or bind to the tailnet address). You get WireGuard encryption
+  **and** device identity for free, with no certificates to manage.
+- **SSH port-forward:** `ssh -L 4711:localhost:4711 user@server` — the client connects to its
+  own `localhost:4711`, encrypted end to end.
+- **stunnel** or a TLS-terminating reverse proxy in front of the port.
+
+For a classroom LAN, the auth token alone is usually enough. For anything crossing an
+untrusted network, add a tunnel.
+
 ## Supported versions
 
 Security fixes land on `master` and ship in the next release. The `2.x` line (Paper 26.2 /
