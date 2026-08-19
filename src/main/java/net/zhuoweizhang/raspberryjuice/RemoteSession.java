@@ -106,6 +106,11 @@ public class RemoteSession {
 	// the per-session programmable agent (turtle), null until agent.spawn() is called
 	private Agent agent = null;
 
+	// ids of entities THIS session spawned (via world.spawnEntity). Only the owning session may
+	// MUTATE an entity - so one client can't kill/move another client's mobs. Reads are open.
+	// Main-thread-only access (all commands run on the tick), so a plain HashSet is fine.
+	protected final java.util.Set<Integer> ownedEntities = new java.util.HashSet<Integer>();
+
 	public RemoteSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException {
 		this.socket = socket;
 		this.plugin = plugin;
@@ -636,6 +641,7 @@ public class RemoteSession {
 			} else if (c.equals("world.spawnEntity")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
+				ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
 				send(entity.getEntityId());
 
 			// world.getEntityTypes
@@ -786,7 +792,7 @@ public class RemoteSession {
 	private boolean handleEntityControlCommands(String c, String[] args, World world) {
 			// entity.moveTo(id,x,y,z) - walk the mob to a point using real pathfinding
 			if (c.equals("entity.moveTo")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity e = controllableEntity(args[0]);
 				if (e instanceof Mob mob) {
 					mob.getPathfinder().moveTo(parseRelativeLocation(args[1], args[2], args[3]));
 				} else {
@@ -862,7 +868,10 @@ public class RemoteSession {
 	/** Resolves an entity by id for id-targeted MUTATION, refusing players so a client can't
 	 *  kill/teleport/harass players by id (use the self-targeted player.* commands instead). */
 	private org.bukkit.entity.Entity controllableEntity(String idArg) {
-		org.bukkit.entity.Entity e = plugin.getEntity(Integer.parseInt(idArg));
+		int id = Integer.parseInt(idArg);
+		// only entities this session spawned may be mutated (per-session ownership), and never players
+		if (!ownedEntities.contains(id)) return null;
+		org.bukkit.entity.Entity e = plugin.getEntity(id);
 		return (e instanceof Player) ? null : e;
 	}
 
