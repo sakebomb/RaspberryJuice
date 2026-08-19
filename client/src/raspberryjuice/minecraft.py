@@ -50,8 +50,14 @@ class Minecraft:
         self.agent = Agent(connection)
 
     @classmethod
-    def connect(cls, host: str = "localhost", port: int = 4711) -> "Minecraft":
-        return cls(Connection(host, port))
+    def connect(cls, host: str = "localhost", port: int = 4711,
+                token: str | None = None) -> "Minecraft":
+        """Connect to a server. If it requires an ``auth-token``, pass ``token`` to authenticate
+        (raises :class:`RequestError` if the token is rejected)."""
+        conn = Connection(host, port)
+        if token:
+            conn.call("auth", token)  # -> "1" on success, RequestError on failure
+        return cls(conn)
 
     # familiar mcpi-style alias
     create = connect

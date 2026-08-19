@@ -52,6 +52,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private boolean opCommandsEnabled;
 
+	private String authToken;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -63,6 +65,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public boolean isOpCommandsEnabled() {
 		return opCommandsEnabled;
+	}
+	public String getAuthToken() {
+		return authToken == null ? "" : authToken;
 	}
 
 	public void onEnable() {
@@ -88,6 +93,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//whether player.setGameMode / player.give are allowed (disable on shared servers)
 		opCommandsEnabled = this.getConfig().getBoolean("enable-op-commands", true);
+		authToken = this.getConfig().getString("auth-token", "");
 
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();

@@ -26,6 +26,14 @@ welcome-message: true
 # shared/survival server so a socket client can't self-grant creative mode or items.
 enable-op-commands: true
 
+# Optional shared secret. When set (non-empty), a client must authenticate before any other
+# command by sending  auth(<token>)  - all other commands answer "Fail" until it does, and the
+# connection is dropped after a few bad attempts. Empty (default) = no authentication.
+# NOTE: the socket is NOT encrypted, so this token protects against unauthorized connections,
+# not against sniffing on an untrusted network - tunnel the port (Tailscale/SSH/stunnel) for
+# confidentiality. See SECURITY.md.
+auth-token: ''
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.

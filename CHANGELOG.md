@@ -22,6 +22,13 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
   Python client suite; a tag-triggered release workflow.
 - `SECURITY.md`, `CONTRIBUTING.md`, issue/PR templates.
 
+### Security
+- **Per-session entity ownership** — only the connection that spawned an entity may control it
+  (one client can't move/kill another's mobs). Reads stay open.
+- **Optional `auth-token`** — a shared-secret handshake (`auth(<token>)`) that gates the socket;
+  clients pass it via `Minecraft.connect(..., token=…)`. `SECURITY.md` documents encrypted
+  transport (Tailscale/SSH/stunnel).
+
 ### Fixed / Hardened
 - Id-targeted `entity.*` **mutators refuse to act on players** (a client could previously
   `entity.setHealth(<playerId>,0)` to kill any player). Read-only getters still resolve players.

@@ -156,6 +156,17 @@ def test_dropped_connection_raises_connectionerror():
         srv.close()
 
 
+def test_auth_token_sent_on_connect(server_and_mc):
+    srv, mc = server_and_mc({"auth": "1"}, token="hunter2")
+    srv.wait_for(1)
+    assert srv.received == ["auth(hunter2)"]
+
+
+def test_auth_rejected_raises(server_and_mc):
+    with pytest.raises(RequestError):
+        server_and_mc({"auth": "Fail"}, token="wrong-token")
+
+
 def test_reactive_events(server_and_mc):
     srv, mc = server_and_mc({
         "events.player.moves": "3,64,-2,Alice|4,64,-2,Alice",

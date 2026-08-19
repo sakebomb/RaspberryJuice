@@ -131,6 +131,7 @@ Modify config.yml:
  - max-blocks: 1000000 - maximum blocks a single getBlocks/setBlocks may span; oversized requests are rejected. 0 disables the cap.
  - welcome-message: true - broadcast a "Welcome &lt;player&gt;" message on join. Set false to stay silent.
  - enable-op-commands: true - allow the power commands `player.setGameMode` / `player.give`. Set false on a shared/survival server so a socket client can't self-grant creative mode or items.
+ - auth-token: '' - optional shared secret. When set, clients must send `auth(<token>)` before any other command (`Minecraft.connect(host, port, token="…")` in the Python client). Empty = no auth. The socket is unencrypted, so tunnel the port for confidentiality - see [SECURITY.md](SECURITY.md).
 
 ## Libraries
 
