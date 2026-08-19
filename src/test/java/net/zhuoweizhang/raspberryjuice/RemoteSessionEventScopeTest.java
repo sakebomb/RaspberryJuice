@@ -13,8 +13,17 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.util.List;
 
+import java.util.ArrayList;
+
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.damage.DamageSource;
+import org.bukkit.damage.DamageType;
+import org.bukkit.entity.Player;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -120,6 +129,65 @@ class RemoteSessionEventScopeTest {
 		// the session's own player's move must be delivered
 		plugin.onPlayerMove(new PlayerMoveEvent(mine, from, to));
 		assertEquals("5,64,0," + PlainText.plain(mine.playerListName()), pollMoves(s));
+	}
+
+	// ---- block-break and death scoping through the real listeners ----------
+	// These go through the same allowGlobalEvents||isForCurrentPlayer gate as moves, but block
+	// events queue via LegacyBlocks.legacyId (which MockBukkit can't back) and PlayerDeathEvent
+	// uses event.getEntity() (a DIFFERENT accessor than the other three - worth its own guard).
+	// A RecordingSession overrides the queue* methods to record only the player, so the gate is
+	// exercised without ever hitting legacyId or a real poll.
+
+	private static final class RecordingSession extends RemoteSession {
+		final List<String> brokeFor = new ArrayList<>();
+		final List<String> diedFor = new ArrayList<>();
+		RecordingSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException { super(plugin, socket); }
+		@Override protected void startThreads() { }
+		@Override public void queueBlockBreak(Player p, Block b) { brokeFor.add(p.getName()); }
+		@Override public void queuePlayerDeath(Player p) { diedFor.add(p.getName()); }
+	}
+
+	private RecordingSession recordingSession() throws IOException {
+		RecordingSession s = new RecordingSession(plugin, new FakeSocket());
+		s.setOrigin(new Location(world, 0, 0, 0));
+		return s;
+	}
+
+	private PlayerDeathEvent deathOf(Player p) {
+		DamageSource src = DamageSource.builder(DamageType.GENERIC).build();
+		return new PlayerDeathEvent(p, src, new ArrayList<>(), 0, net.kyori.adventure.text.Component.empty(), false);
+	}
+
+	@Test
+	void onBlockBreak_dropsOtherPlayers_whenScoped() throws Exception {
+		RecordingSession s = recordingSession();
+		PlayerMock mine = server.addPlayer("Ivy");
+		PlayerMock other = server.addPlayer("Zed");
+		plugin.hostPlayer = mine;
+		plugin.sessions.add(s);
+		Block block = world.getBlockAt(1, 5, 1);
+
+		plugin.onBlockBreak(new BlockBreakEvent(block, other));
+		assertTrue(s.brokeFor.isEmpty(), "another player's block break must be dropped for a scoped session");
+
+		plugin.onBlockBreak(new BlockBreakEvent(block, mine));
+		assertEquals(List.of("Ivy"), s.brokeFor, "the session's own break must be delivered");
+	}
+
+	@Test
+	void onPlayerDeath_usesGetEntity_andScopesToOwnPlayer() throws Exception {
+		// guards that onPlayerDeath reads event.getEntity() (not getPlayer()) AND applies the gate
+		RecordingSession s = recordingSession();
+		PlayerMock mine = server.addPlayer("Ada");
+		PlayerMock other = server.addPlayer("Boo");
+		plugin.hostPlayer = mine;
+		plugin.sessions.add(s);
+
+		plugin.onPlayerDeath(deathOf(other));
+		assertTrue(s.diedFor.isEmpty(), "another player's death must be dropped for a scoped session");
+
+		plugin.onPlayerDeath(deathOf(mine));
+		assertEquals(List.of("Ada"), s.diedFor, "the session's own death must be delivered");
 	}
 
 	private static final class FakeSocket extends Socket {
