@@ -54,6 +54,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private boolean opCommandsEnabled;
 
+	private boolean allowGlobalEvents;
+
 	private String authToken;
 
 	public LocationType getLocationType() {
@@ -70,6 +72,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public boolean isOpCommandsEnabled() {
 		return opCommandsEnabled;
+	}
+	public boolean isGlobalEventsAllowed() {
+		return allowGlobalEvents;
 	}
 	public String getAuthToken() {
 		return authToken == null ? "" : authToken;
@@ -102,6 +107,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//whether player.setGameMode / player.give are allowed (disable on shared servers)
 		opCommandsEnabled = this.getConfig().getBoolean("enable-op-commands", true);
+
+		//whether reactive event streams (moves/deaths/block breaks+places) broadcast EVERY player's
+		//activity to every socket (a tracking feed). Default false: each session sees only its own
+		//player's events. Set true for whole-world/region triggers on a trusted single-user server.
+		allowGlobalEvents = this.getConfig().getBoolean("allow-global-events", false);
+
 		authToken = this.getConfig().getString("auth-token", "");
 
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
@@ -203,28 +214,36 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			return;
 		}
 		for (RemoteSession session: sessions) {
-			session.queuePlayerMove(event.getPlayer(), event.getTo());
+			if (allowGlobalEvents || session.isForCurrentPlayer(event.getPlayer())) {
+				session.queuePlayerMove(event.getPlayer(), event.getTo());
+			}
 		}
 	}
 
 	@EventHandler(ignoreCancelled=true)
 	public void onBlockBreak(BlockBreakEvent event) {
 		for (RemoteSession session: sessions) {
-			session.queueBlockBreak(event.getPlayer(), event.getBlock());
+			if (allowGlobalEvents || session.isForCurrentPlayer(event.getPlayer())) {
+				session.queueBlockBreak(event.getPlayer(), event.getBlock());
+			}
 		}
 	}
 
 	@EventHandler(ignoreCancelled=true)
 	public void onBlockPlace(BlockPlaceEvent event) {
 		for (RemoteSession session: sessions) {
-			session.queueBlockPlace(event.getPlayer(), event.getBlock());
+			if (allowGlobalEvents || session.isForCurrentPlayer(event.getPlayer())) {
+				session.queueBlockPlace(event.getPlayer(), event.getBlock());
+			}
 		}
 	}
 
 	@EventHandler
 	public void onPlayerDeath(PlayerDeathEvent event) {
 		for (RemoteSession session: sessions) {
-			session.queuePlayerDeath(event.getEntity());
+			if (allowGlobalEvents || session.isForCurrentPlayer(event.getEntity())) {
+				session.queuePlayerDeath(event.getEntity());
+			}
 		}
 	}
 

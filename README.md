@@ -132,6 +132,7 @@ Modify config.yml:
  - max-blocks-per-tick: 10000000 - cumulative blocks all cuboid ops (getBlocks/setBlocks/clone) may touch in one server tick; bounds a flood of near-cap requests that `max-blocks` alone can't. 0 disables the per-tick budget (not recommended).
  - welcome-message: true - broadcast a "Welcome &lt;player&gt;" message on join. Set false to stay silent.
  - enable-op-commands: true - allow the power commands `player.setGameMode` / `player.give`. Set false on a shared/survival server so a socket client can't self-grant creative mode or items.
+ - allow-global-events: false - by default the reactive event streams (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) report only the session's OWN player's activity. Set true to broadcast every player's events to every socket (a live tracking feed) - only on a trusted single-user server where you want whole-world/region triggers.
  - auth-token: '' - optional shared secret. When set, clients must send `auth(<token>)` before any other command (`Minecraft.connect(host, port, token="…")` in the Python client). Empty = no auth. The socket is unencrypted, so tunnel the port for confidentiality - see [SECURITY.md](SECURITY.md).
 
 ## Libraries

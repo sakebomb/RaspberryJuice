@@ -15,7 +15,7 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
 - **World & player control** — `world.setTime / getTime / setWeather / clone`,
   `player.setGameMode / give`.
 - **Reactive events** — `events.player.moves`, `events.block.breaks`, `events.block.places`,
-  `events.player.deaths`.
+  `events.player.deaths`. Scoped to the session's own player by default (see Security).
 - **Python client** — a typed, `pip`-installable `raspberryjuice` package in `client/`, with
   examples and a test suite.
 - **CI** — GitHub Actions build/test on JDK 25, a live Paper 26.2 integration smoke, and the
@@ -28,6 +28,11 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
 - **Optional `auth-token`** — a shared-secret handshake (`auth(<token>)`) that gates the socket;
   clients pass it via `Minecraft.connect(..., token=…)`. `SECURITY.md` documents encrypted
   transport (Tailscale/SSH/stunnel).
+- **Reactive events are player-scoped by default** — `events.player.moves` / `block.breaks` /
+  `block.places` / `player.deaths` previously broadcast every player's activity to every socket
+  (a live tracking feed). Each session now sees only its own player's events. New
+  `allow-global-events` config (default `false`) restores global broadcast for whole-world /
+  region triggers on a trusted single-user server.
 
 ### Fixed / Hardened
 - Id-targeted `entity.*` **mutators refuse to act on players** (a client could previously
