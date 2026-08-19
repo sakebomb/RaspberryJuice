@@ -51,6 +51,9 @@ public class RemoteSession {
 
 	private Location origin;
 
+	// pure coordinate math bound to `origin`; rebuilt via updateOrigin() whenever origin changes
+	private RelativeGeometry geometry;
+
 	private Socket socket;
 
 	private BufferedReader in;
@@ -151,8 +154,19 @@ public class RemoteSession {
 		return origin;
 	}
 
+	// the session's coordinate math, bound to the current origin (see updateOrigin)
+	RelativeGeometry geometry() {
+		return geometry;
+	}
+
 	public void setOrigin(Location origin) {
-		this.origin = origin;
+		updateOrigin(origin);
+	}
+
+	// the sole writer of `origin` - keeps origin and its geometry in lockstep
+	private void updateOrigin(Location o) {
+		this.origin = o;
+		this.geometry = new RelativeGeometry(o);
 	}
 
 	public Socket getSocket() {
@@ -204,10 +218,10 @@ public class RemoteSession {
 		if (origin == null) {
 			switch (locationType) {
 				case ABSOLUTE:
-					this.origin = new Location(plugin.getServer().getWorlds().get(0), 0, 0, 0);
+					updateOrigin(new Location(plugin.getServer().getWorlds().get(0), 0, 0, 0));
 					break;
 				case RELATIVE:
-					this.origin = plugin.getServer().getWorlds().get(0).getSpawnLocation();
+					updateOrigin(plugin.getServer().getWorlds().get(0).getSpawnLocation());
 					break;
 				default:
 					throw new IllegalArgumentException("Unknown location type " + locationType);
@@ -311,19 +325,19 @@ public class RemoteSession {
 	private boolean handleWorldAndBulkEntityCommands(String c, String[] args, World world) {
 			// world.getBlock
 			if (c.equals("world.getBlock")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 				send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
 
 			// world.getBlocks
 			} else if (c.equals("world.getBlocks")) {
-				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
+				Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 				if (exceedsBlockLimit(loc1, loc2)) {
-					plugin.getLogger().warning("world.getBlocks request of " + blockVolume(loc1, loc2)
+					plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
 					send("Fail");
-				} else if (!reserveBlockBudget(blockVolume(loc1, loc2))) {
-					plugin.getLogger().warning("world.getBlocks request of " + blockVolume(loc1, loc2)
+				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
+					plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
 						+ plugin.getMaxBlocksPerTick() + "); rejected.");
 					send("Fail");
@@ -333,26 +347,26 @@ public class RemoteSession {
 
 			// world.getBlockWithData
 			} else if (c.equals("world.getBlockWithData")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Block block = world.getBlockAt(loc);
 				send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
 				
 			// world.setBlock
 			} else if (c.equals("world.setBlock")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 				updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
 				
 			// world.setBlocks
 			} else if (c.equals("world.setBlocks")) {
-				Location loc1 = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location loc2 = parseRelativeBlockLocation(args[3], args[4], args[5]);
+				Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 				int blockType = Integer.parseInt(args[6]);
 				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
 				if (exceedsBlockLimit(loc1, loc2)) {
-					plugin.getLogger().warning("world.setBlocks request of " + blockVolume(loc1, loc2)
+					plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-				} else if (!reserveBlockBudget(blockVolume(loc1, loc2))) {
-					plugin.getLogger().warning("world.setBlocks request of " + blockVolume(loc1, loc2)
+				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
+					plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
 						+ plugin.getMaxBlocksPerTick() + "); rejected.");
 				} else {
@@ -592,7 +606,7 @@ public class RemoteSession {
 	private boolean handleEntityAndWorldExtraCommands(String c, String[] args, World world) {
 			// world.getHeight
 			if (c.equals("world.getHeight")) {
-				send(world.getHighestBlockYAt(parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
+				send(world.getHighestBlockYAt(geometry.parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
 				
 			// entity.getTile
 			} else if (c.equals("entity.getTile")) {
@@ -672,7 +686,7 @@ public class RemoteSession {
 				
 			// world.setSign
 			} else if (c.equals("world.setSign")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Block thisBlock = world.getBlockAt(loc);
 				//blockType should be 68 for wall sign or 63 for standing sign
 				int blockType = Integer.parseInt(args[3]);
@@ -694,7 +708,7 @@ public class RemoteSession {
 			
 			// world.spawnEntity
 			} else if (c.equals("world.spawnEntity")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 				Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
 				ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
 				send(entity.getEntityId());
@@ -740,7 +754,7 @@ public class RemoteSession {
 		StringBuilder b = new StringBuilder();
 		for (java.util.Iterator<RecordedEvent> it = queue.iterator(); it.hasNext(); ) {
 			RecordedEvent e = it.next();
-			b.append(blockLocationToRelative(e.loc));
+			b.append(geometry.blockLocationToRelative(e.loc));
 			if (e.blockId >= 0) b.append(",").append(e.blockId);
 			b.append(",").append(e.playerName).append("|");
 			it.remove();
@@ -765,17 +779,17 @@ public class RemoteSession {
 
 			// world.clone(x1,y1,z1,x2,y2,z2,dx,dy,dz) - copy a cuboid to a destination corner
 			} else if (c.equals("world.clone")) {
-				Location a = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location b = parseRelativeBlockLocation(args[3], args[4], args[5]);
-				Location dest = parseRelativeBlockLocation(args[6], args[7], args[8]);
+				Location a = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+				Location b = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
+				Location dest = geometry.parseRelativeBlockLocation(args[6], args[7], args[8]);
 				if (exceedsBlockLimit(a, b)) {
 					// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
-					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
+					plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-				} else if (!reserveBlockBudget(blockVolume(a, b))) {
+				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(a, b))) {
 					// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
 					// or a huge clone under max-blocks=0 - can't OOM the tick
-					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
+					plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
 						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
 						+ plugin.getMaxBlocksPerTick() + "); rejected.");
 				} else {
@@ -855,7 +869,7 @@ public class RemoteSession {
 			if (c.equals("entity.moveTo")) {
 				Entity e = controllableEntity(args[0]);
 				if (e instanceof Mob mob) {
-					mob.getPathfinder().moveTo(parseRelativeLocation(args[1], args[2], args[3]));
+					mob.getPathfinder().moveTo(geometry.parseRelativeLocation(args[1], args[2], args[3]));
 				} else {
 					entitySkipped(c, args[0], false);
 				}
@@ -865,7 +879,7 @@ public class RemoteSession {
 				Entity e = controllableEntity(args[0]);
 				if (e != null) {
 					Location loc = e.getLocation();
-					Vector dir = parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
+					Vector dir = geometry.parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
 					if (dir.lengthSquared() > 0) {
 						loc.setDirection(dir);
 						e.teleport(loc);
@@ -945,7 +959,7 @@ public class RemoteSession {
 				int bx, by, bz;
 				float yaw;
 				if (args.length >= 3 && !args[0].isEmpty()) {
-					Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+					Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 					bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
 					yaw = 0f;
 				} else {
@@ -963,7 +977,7 @@ public class RemoteSession {
 			// agent.getPos - block position, in the session's relative frame
 			} else if (c.equals("agent.getPos")) {
 				if (!requireAgent()) return true;
-				send(blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
+				send(geometry.blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
 
 			// agent.getRotation - facing as a cardinal yaw (0=S,90=W,180=N,270=E)
 			} else if (c.equals("agent.getRotation")) {
@@ -1019,25 +1033,10 @@ public class RemoteSession {
 		return 1;
 	}
 
-	// number of blocks spanned by the cuboid between two corners (inclusive).
-	// Saturates to Long.MAX_VALUE on overflow so a huge span can't wrap to a small
-	// value and slip past the limit check (coords are clamped to int range, so an
-	// absurd request could otherwise multiply out to exactly 0).
-	long blockVolume(Location p1, Location p2) {
-		long dx = Math.abs((long) p1.getBlockX() - p2.getBlockX()) + 1;
-		long dy = Math.abs((long) p1.getBlockY() - p2.getBlockY()) + 1;
-		long dz = Math.abs((long) p1.getBlockZ() - p2.getBlockZ()) + 1;
-		try {
-			return Math.multiplyExact(Math.multiplyExact(dx, dy), dz);
-		} catch (ArithmeticException overflow) {
-			return Long.MAX_VALUE;
-		}
-	}
-
 	// true if the cuboid is larger than the configured max-blocks limit (0 = unlimited)
 	boolean exceedsBlockLimit(Location p1, Location p2) {
 		int max = plugin.getMaxBlocks();
-		return max > 0 && blockVolume(p1, p2) > max;
+		return max > 0 && RelativeGeometry.blockVolume(p1, p2) > max;
 	}
 
 	// Charge `volume` blocks against this tick's cumulative cuboid budget. Returns true and
@@ -1155,44 +1154,6 @@ public class RemoteSession {
 		return player;
 	}
 
-
-	public Location parseRelativeBlockLocation(String xstr, String ystr, String zstr) {
-		// floor (not truncate-toward-zero) so negative fractional coords map to the right block
-		int x = (int) Math.floor(Double.parseDouble(xstr));
-		int y = (int) Math.floor(Double.parseDouble(ystr));
-		int z = (int) Math.floor(Double.parseDouble(zstr));
-		return parseLocation(origin.getWorld(), x, y, z, origin.getBlockX(), origin.getBlockY(), origin.getBlockZ());
-	}
-
-	public Location parseRelativeLocation(String xstr, String ystr, String zstr) {
-		double x = Double.parseDouble(xstr);
-		double y = Double.parseDouble(ystr);
-		double z = Double.parseDouble(zstr);
-		return parseLocation(origin.getWorld(), x, y, z, origin.getX(), origin.getY(), origin.getZ());
-	}
-
-	public Location parseRelativeBlockLocation(String xstr, String ystr, String zstr, float pitch, float yaw) {
-		Location loc = parseRelativeBlockLocation(xstr, ystr, zstr);
-		loc.setPitch(pitch);
-		loc.setYaw(yaw);
-		return loc;
-	}
-
-	public Location parseRelativeLocation(String xstr, String ystr, String zstr, float pitch, float yaw) {
-		Location loc = parseRelativeLocation(xstr, ystr, zstr);
-		loc.setPitch(pitch);
-		loc.setYaw(yaw);
-		return loc;
-	}
-	
-	public String blockLocationToRelative(Location loc) {
-		return parseLocation(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ(), origin.getBlockX(), origin.getBlockY(), origin.getBlockZ());
-	}
-
-	public String locationToRelative(Location loc) {
-		return parseLocation(loc.getX(), loc.getY(), loc.getZ(), origin.getX(), origin.getY(), origin.getZ());
-	}
-
 	// ---- shared entity geometry --------------------------------------------
 	// The player.* and entity.* pos/tile/direction/rotation/pitch commands differ only in how
 	// the target is resolved (attached player vs. lookup-by-id) and in their null policy; the
@@ -1200,22 +1161,22 @@ public class RemoteSession {
 	// player variant flips a negative yaw to positive, the entity variant does not (flipYaw).
 
 	private String entityGetPos(Entity target) {
-		return locationToRelative(target.getLocation());
+		return geometry.locationToRelative(target.getLocation());
 	}
 
 	private void entitySetPos(Entity target, String x, String y, String z) {
 		Location loc = target.getLocation();
 		// keep current pitch/yaw so teleporting only moves the target
-		target.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+		target.teleport(geometry.parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
 	}
 
 	private String entityGetTile(Entity target) {
-		return blockLocationToRelative(target.getLocation());
+		return geometry.blockLocationToRelative(target.getLocation());
 	}
 
 	private void entitySetTile(Entity target, String x, String y, String z) {
 		Location loc = target.getLocation();
-		target.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+		target.teleport(geometry.parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
 	}
 
 	private String entityGetDirection(Entity target) {
@@ -1257,31 +1218,6 @@ public class RemoteSession {
 		if (sendFail) send("Fail");
 	}
 
-	private String parseLocation(double x, double y, double z, double originX, double originY, double originZ) {
-		return (x - originX) + "," + (y - originY) + "," + (z - originZ);
-	}
-
-	private Location parseLocation(World world, double x, double y, double z, double originX, double originY, double originZ) {
-		return new Location(world, originX + x, originY + y, originZ + z);
-	}
-
-	private String parseLocation(int x, int y, int z, int originX, int originY, int originZ) {
-		return (x - originX) + "," + (y - originY) + "," + (z - originZ);
-	}
-
-	private Location parseLocation(World world, int x, int y, int z, int originX, int originY, int originZ) {
-		return new Location(world, originX + x, originY + y, originZ + z);
-	}
-
-	private double getDistance(Entity ent1, Entity ent2) {
-		if (ent1 == null || ent2 == null)
-			return -1;
-		double dx = ent2.getLocation().getX() - ent1.getLocation().getX();
-		double dy = ent2.getLocation().getY() - ent1.getLocation().getY();
-		double dz = ent2.getLocation().getZ() - ent1.getLocation().getZ();
-		return Math.sqrt(dx*dx + dy*dy + dz*dz);
-	}
-
 	private String getEntities(World world, int entityType) {
 		StringBuilder bdr = new StringBuilder();				
 		for (Entity e : world.getEntities()) {
@@ -1299,7 +1235,7 @@ public class RemoteSession {
 		for (Entity e : world.getEntities()) {
 			if (((entityType == -1 && LegacyEntities.typeId(e.getType()) >= 0) || LegacyEntities.typeId(e.getType()) == entityType) && 
 				e.getType().isSpawnable() && 
-				getDistance(playerEntity, e) <= distance) {
+				RelativeGeometry.getDistance(playerEntity, e) <= distance) {
 				bdr.append(getEntityMsg(e));
 			}
 		}
@@ -1327,7 +1263,7 @@ public class RemoteSession {
 		int removedEntitiesCount = 0;
 		Entity playerEntityId = plugin.getEntity(entityId);
 		for (Entity e : world.getEntities()) {
-			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && getDistance(playerEntityId, e) <= distance)
+			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && RelativeGeometry.getDistance(playerEntityId, e) <= distance)
 			{
 				e.remove();
 				removedEntitiesCount++;
@@ -1347,7 +1283,7 @@ public class RemoteSession {
 			if (entityId == -1 || event.getPlayer().getEntityId() == entityId) {
 				Block block = event.getClickedBlock();
 				Location loc = block.getLocation();
-				b.append(blockLocationToRelative(loc));
+				b.append(geometry.blockLocationToRelative(loc));
 				b.append(",");
 				b.append(blockFaceToNotch(event.getBlockFace()));
 				b.append(",");
@@ -1401,7 +1337,7 @@ public class RemoteSession {
 						? arrow.getLocation().getBlock()
 						: attachedBlocks.get(0);
 					Location loc = block.getLocation();
-					b.append(blockLocationToRelative(loc));
+					b.append(geometry.blockLocationToRelative(loc));
 					b.append(",");
 					b.append(1); //blockFaceToNotch(event.getBlockFace()), but don't really care
 					b.append(",");

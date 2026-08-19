@@ -53,7 +53,7 @@ class RemoteSessionLocationTest {
 			String expected) throws Exception {
 		RemoteSession session = sessionWithOrigin(type, sx, sy, sz);
 		Location point = new Location(mock(World.class), 20, 3, -5);
-		assertEquals(expected, session.locationToRelative(point));
+		assertEquals(expected, session.geometry().locationToRelative(point));
 	}
 
 	@ParameterizedTest
@@ -66,7 +66,7 @@ class RemoteSessionLocationTest {
 	void parseRelativeBlockLocation_addsOrigin(LocationType type, double sx, double sy, double sz,
 			int ex, int ey, int ez) throws Exception {
 		RemoteSession session = sessionWithOrigin(type, sx, sy, sz);
-		Location loc = session.parseRelativeBlockLocation("32", "69", "-100");
+		Location loc = session.geometry().parseRelativeBlockLocation("32", "69", "-100");
 		assertEquals(ex, loc.getBlockX());
 		assertEquals(ey, loc.getBlockY());
 		assertEquals(ez, loc.getBlockZ());
@@ -75,7 +75,7 @@ class RemoteSessionLocationTest {
 	@org.junit.jupiter.api.Test
 	void parseRelativeBlockLocation_floorsNegativeFractions() throws Exception {
 		RemoteSession session = sessionWithOrigin(LocationType.ABSOLUTE, 0, 0, 0);
-		Location loc = session.parseRelativeBlockLocation("-0.5", "10.9", "-3.1");
+		Location loc = session.geometry().parseRelativeBlockLocation("-0.5", "10.9", "-3.1");
 		assertEquals(-1, loc.getBlockX()); // floor(-0.5) = -1, not 0
 		assertEquals(10, loc.getBlockY());
 		assertEquals(-4, loc.getBlockZ()); // floor(-3.1) = -4, not -3
@@ -91,7 +91,7 @@ class RemoteSessionLocationTest {
 	void parseRelativeLocation_addsOrigin(LocationType type, double sx, double sy, double sz,
 			double ex, double ey, double ez) throws Exception {
 		RemoteSession session = sessionWithOrigin(type, sx, sy, sz);
-		Location loc = session.parseRelativeLocation("32", "69", "-100");
+		Location loc = session.geometry().parseRelativeLocation("32", "69", "-100");
 		assertEquals(ex, loc.getX());
 		assertEquals(ey, loc.getY());
 		assertEquals(ez, loc.getZ());
