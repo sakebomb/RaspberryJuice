@@ -77,11 +77,13 @@ public class RemoteSession {
 
 	protected ConcurrentLinkedQueue<ProjectileHitEvent> projectileHitQueue = new ConcurrentLinkedQueue<ProjectileHitEvent>();
 
-	// #13 reactive events, snapshotted at queue time (raw Bukkit events are transient/mutable)
-	protected java.util.Queue<RecordedEvent> moveQueue = new ConcurrentLinkedQueue<RecordedEvent>();
-	protected java.util.Queue<RecordedEvent> blockPlaceQueue = new ConcurrentLinkedQueue<RecordedEvent>();
-	protected java.util.Queue<RecordedEvent> blockBreakQueue = new ConcurrentLinkedQueue<RecordedEvent>();
-	protected java.util.Queue<RecordedEvent> deathQueue = new ConcurrentLinkedQueue<RecordedEvent>();
+	// #13 reactive events, snapshotted at queue time (raw Bukkit events are transient/mutable).
+	// LinkedBlockingQueue (O(1) size) so they can be bounded cheaply - see enqueueEvent.
+	private static final int MAX_EVENTS_PER_QUEUE = 10000;
+	protected java.util.Queue<RecordedEvent> moveQueue = new LinkedBlockingQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> blockPlaceQueue = new LinkedBlockingQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> blockBreakQueue = new LinkedBlockingQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> deathQueue = new LinkedBlockingQueue<RecordedEvent>();
 
 	/** Snapshot of a player-triggered event: a location, the player name, and an optional block id (-1 = none). */
 	static final class RecordedEvent {
@@ -150,19 +152,25 @@ public class RemoteSession {
 	}
 
 	public void queuePlayerMove(Player p, Location to) {
-		moveQueue.add(new RecordedEvent(to.clone(), PlainText.plain(p.playerListName()), -1));
+		enqueueEvent(moveQueue, new RecordedEvent(to.clone(), PlainText.plain(p.playerListName()), -1));
 	}
 
 	public void queueBlockBreak(Player p, Block block) {
-		blockBreakQueue.add(new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
+		enqueueEvent(blockBreakQueue, new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
 	}
 
 	public void queueBlockPlace(Player p, Block block) {
-		blockPlaceQueue.add(new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
+		enqueueEvent(blockPlaceQueue, new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
 	}
 
 	public void queuePlayerDeath(Player p) {
-		deathQueue.add(new RecordedEvent(p.getLocation(), PlainText.plain(p.playerListName()), -1));
+		enqueueEvent(deathQueue, new RecordedEvent(p.getLocation(), PlainText.plain(p.playerListName()), -1));
+	}
+
+	/** Adds an event, dropping the oldest first so an unpolled queue can't exhaust memory. */
+	private void enqueueEvent(java.util.Queue<RecordedEvent> queue, RecordedEvent e) {
+		while (queue.size() >= MAX_EVENTS_PER_QUEUE) queue.poll();
+		queue.add(e);
 	}
 	
 	public void queueProjectileHitEvent(ProjectileHitEvent event) {
@@ -534,7 +542,7 @@ public class RemoteSession {
 				
 			// entity.setTile
 			} else if (c.equals("entity.setTile")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
 				else entityNotFound(args[0], true);
 
@@ -546,13 +554,13 @@ public class RemoteSession {
 			
 			// entity.setPos
 			} else if (c.equals("entity.setPos")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
 				else entityNotFound(args[0], true);
 
 			// entity.setDirection
 			} else if (c.equals("entity.setDirection")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetDirection(entity, args[1], args[2], args[3]);
 				else entityNotFound(args[0], false);
 				
@@ -564,7 +572,7 @@ public class RemoteSession {
 
 			// entity.setRotation
 			} else if (c.equals("entity.setRotation")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetRotation(entity, args[1]);
 				else entityNotFound(args[0], false);
 
@@ -576,7 +584,7 @@ public class RemoteSession {
 			
 			// entity.setPitch
 			} else if (c.equals("entity.setPitch")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetPitch(entity, args[1]);
 				else entityNotFound(args[0], false);
 
@@ -700,9 +708,9 @@ public class RemoteSession {
 				Location b = parseRelativeBlockLocation(args[3], args[4], args[5]);
 				Location dest = parseRelativeBlockLocation(args[6], args[7], args[8]);
 				if (exceedsBlockLimit(a, b)) {
+					// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
 					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-					send("Fail");
 				} else {
 					cloneRegion(world, a, b, dest);
 				}
@@ -785,7 +793,7 @@ public class RemoteSession {
 
 			// entity.lookAt(id,x,y,z) - face a point
 			} else if (c.equals("entity.lookAt")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity e = controllableEntity(args[0]);
 				if (e != null) {
 					Location loc = e.getLocation();
 					Vector dir = parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
@@ -808,9 +816,11 @@ public class RemoteSession {
 
 			// entity.setHealth(id,health) - clamped to [0, max]
 			} else if (c.equals("entity.setHealth")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity e = controllableEntity(args[0]);
 				if (e instanceof LivingEntity le) {
-					double health = Math.max(0.0, Math.min(Double.parseDouble(args[1]), maxHealth(le)));
+					double requested = Double.parseDouble(args[1]);
+					if (!Double.isFinite(requested)) return true; // ignore NaN/Infinity
+					double health = Math.max(0.0, Math.min(requested, maxHealth(le)));
 					le.setHealth(health);
 				} else {
 					logEntityControlSkip(c, args[0]);
@@ -818,7 +828,7 @@ public class RemoteSession {
 
 			// entity.setName(id,name) - visible name tag (name is a single token, no commas)
 			} else if (c.equals("entity.setName")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity e = controllableEntity(args[0]);
 				if (e != null) {
 					e.customName(Component.text(args[1]));
 					e.setCustomNameVisible(true);
@@ -828,7 +838,7 @@ public class RemoteSession {
 
 			// entity.setAI(id,0|1) - freeze/unfreeze the mob's AI
 			} else if (c.equals("entity.setAI")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+				Entity e = controllableEntity(args[0]);
 				if (e instanceof LivingEntity le) {
 					le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
 				} else {
@@ -845,6 +855,13 @@ public class RemoteSession {
 	private double maxHealth(LivingEntity le) {
 		AttributeInstance a = le.getAttribute(Attribute.MAX_HEALTH);
 		return a != null ? a.getValue() : le.getHealth();
+	}
+
+	/** Resolves an entity by id for id-targeted MUTATION, refusing players so a client can't
+	 *  kill/teleport/harass players by id (use the self-targeted player.* commands instead). */
+	private org.bukkit.entity.Entity controllableEntity(String idArg) {
+		org.bukkit.entity.Entity e = plugin.getEntity(Integer.parseInt(idArg));
+		return (e instanceof Player) ? null : e;
 	}
 
 	private void logEntityControlSkip(String c, String id) {

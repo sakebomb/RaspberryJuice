@@ -121,6 +121,19 @@ class RemoteSessionEventsTest {
 		assertEquals("", lastSentFor(s, "events.player.deaths"));
 	}
 
+	@Test
+	void eventQueue_isBoundedDroppingOldest() throws Exception {
+		RemoteSession s = session();
+		PlayerMock p = server.addPlayer("Flo");
+		for (int i = 0; i < 10005; i++) {
+			s.queuePlayerMove(p, new Location(world, i, 0, 0));
+		}
+		String[] events = lastSentFor(s, "events.player.moves").split("\\|");
+		assertEquals(10000, events.length, "queue must be capped so an unpolled client can't exhaust memory");
+		// oldest were dropped: the first surviving event is index 5 (0..4 evicted)
+		assertTrue(events[0].startsWith("5,0,0,"), "expected oldest events dropped, got " + events[0]);
+	}
+
 	private String lastSentFor(RemoteSession s, String command) {
 		s.handleLine(command + "()");
 		return lastSent(s);
