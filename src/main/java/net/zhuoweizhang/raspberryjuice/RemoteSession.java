@@ -77,6 +77,24 @@ public class RemoteSession {
 
 	protected ConcurrentLinkedQueue<ProjectileHitEvent> projectileHitQueue = new ConcurrentLinkedQueue<ProjectileHitEvent>();
 
+	// #13 reactive events, snapshotted at queue time (raw Bukkit events are transient/mutable)
+	protected java.util.Queue<RecordedEvent> moveQueue = new ConcurrentLinkedQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> blockPlaceQueue = new ConcurrentLinkedQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> blockBreakQueue = new ConcurrentLinkedQueue<RecordedEvent>();
+	protected java.util.Queue<RecordedEvent> deathQueue = new ConcurrentLinkedQueue<RecordedEvent>();
+
+	/** Snapshot of a player-triggered event: a location, the player name, and an optional block id (-1 = none). */
+	static final class RecordedEvent {
+		final Location loc;
+		final String playerName;
+		final int blockId;
+		RecordedEvent(Location loc, String playerName, int blockId) {
+			this.loc = loc;
+			this.playerName = playerName;
+			this.blockId = blockId;
+		}
+	}
+
 	private int maxCommandsPerTick = DEFAULT_MAX_COMMANDS_PER_TICK;
 
 	private volatile boolean closed = false;
@@ -129,6 +147,22 @@ public class RemoteSession {
 
 	public void queueChatPostedEvent(AsyncChatEvent event) {
 		chatPostedQueue.add(event);
+	}
+
+	public void queuePlayerMove(Player p, Location to) {
+		moveQueue.add(new RecordedEvent(to.clone(), PlainText.plain(p.playerListName()), -1));
+	}
+
+	public void queueBlockBreak(Player p, Block block) {
+		blockBreakQueue.add(new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
+	}
+
+	public void queueBlockPlace(Player p, Block block) {
+		blockPlaceQueue.add(new RecordedEvent(block.getLocation(), PlainText.plain(p.playerListName()), LegacyBlocks.legacyId(block)));
+	}
+
+	public void queuePlayerDeath(Player p) {
+		deathQueue.add(new RecordedEvent(p.getLocation(), PlainText.plain(p.playerListName()), -1));
 	}
 	
 	public void queueProjectileHitEvent(ProjectileHitEvent event) {
@@ -199,6 +233,7 @@ public class RemoteSession {
 					|| handleEntityAndWorldExtraCommands(c, args, world)
 					|| handleEntityControlCommands(c, args, world)
 					|| handleWorldPlayerControlCommands(c, args, world)
+					|| handleExtraEventCommands(c, args, world)
 					|| handleAgentCommands(c, args, world)) {
 				return;
 			}
@@ -348,6 +383,11 @@ public class RemoteSession {
 			} else if (c.equals("events.clear")) {
 				interactEventQueue.clear();
 				chatPostedQueue.clear();
+				projectileHitQueue.clear();
+				moveQueue.clear();
+				blockPlaceQueue.clear();
+				blockBreakQueue.clear();
+				deathQueue.clear();
 				
 			// events.block.hits
 			} else if (c.equals("events.block.hits")) {
@@ -607,6 +647,37 @@ public class RemoteSession {
 				return false;
 			}
 			return true;
+	}
+
+	// Reactive event polls (#13): player moves / block places / block breaks / player deaths.
+	// Same drain-on-poll model as the existing events.* commands.
+	private boolean handleExtraEventCommands(String c, String[] args, World world) {
+			if (c.equals("events.player.moves")) {
+				send(drainEvents(moveQueue));
+			} else if (c.equals("events.block.places")) {
+				send(drainEvents(blockPlaceQueue));
+			} else if (c.equals("events.block.breaks")) {
+				send(drainEvents(blockBreakQueue));
+			} else if (c.equals("events.player.deaths")) {
+				send(drainEvents(deathQueue));
+			} else {
+				return false;
+			}
+			return true;
+	}
+
+	/** Drain a snapshot-event queue to "x,y,z[,blockId],name" records joined by "|" (relative coords). */
+	private String drainEvents(java.util.Queue<RecordedEvent> queue) {
+		StringBuilder b = new StringBuilder();
+		for (java.util.Iterator<RecordedEvent> it = queue.iterator(); it.hasNext(); ) {
+			RecordedEvent e = it.next();
+			b.append(blockLocationToRelative(e.loc));
+			if (e.blockId >= 0) b.append(",").append(e.blockId);
+			b.append(",").append(e.playerName).append("|");
+			it.remove();
+		}
+		if (b.length() > 0) b.deleteCharAt(b.length() - 1);
+		return b.toString();
 	}
 
 	// World & player control (#15): time/weather, region clone, and player game-mode / give.
