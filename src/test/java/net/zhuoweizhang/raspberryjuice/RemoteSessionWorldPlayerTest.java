@@ -122,11 +122,13 @@ class RemoteSessionWorldPlayerTest {
 	// ---- clone limit guard --------------------------------------------------
 
 	@Test
-	void clone_oversizedRegion_returnsFail() throws Exception {
+	void clone_oversizedRegion_isSilentlyRejected() throws Exception {
 		RemoteSession s = session();
-		// 201^3 ~= 8.1M blocks, over the default 1,000,000 cap -> rejected before any block op
+		// 201^3 ~= 8.1M blocks, over the default 1,000,000 cap -> rejected before any block op.
+		// Silent (log-only) like world.setBlocks: a stray "Fail" on a fire-and-forget command
+		// would desync the client's next read.
 		s.handleLine("world.clone(0,0,0,200,200,200,0,300,0)");
-		assertEquals("Fail", lastSent(s));
+		assertTrue(s.drainSentForTest().isEmpty(), "oversized clone must not send a response");
 	}
 
 	private static final class FakeSocket extends Socket {

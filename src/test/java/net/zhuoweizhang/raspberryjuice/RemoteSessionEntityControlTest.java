@@ -151,6 +151,24 @@ class RemoteSessionEntityControlTest {
 		assertTrue(s.drainSentForTest().isEmpty(), "moveTo on a non-mob must not respond");
 	}
 
+	// ---- security: id-targeted mutators must refuse players -----------------
+
+	@Test
+	void mutators_refusePlayers() throws Exception {
+		RemoteSession s = session();
+		PlayerMock victim = server.addPlayer();
+		victim.setHealth(20.0);
+		int pid = victim.getEntityId();
+
+		// setHealth on a player id must NOT kill/change them
+		s.handleLine("entity.setHealth(" + pid + ",1)");
+		assertEquals(20.0, victim.getHealth(), "a client must not be able to change a player's health by id");
+
+		// but getHealth (a read, not a mutation) may still resolve a player
+		s.handleLine("entity.getHealth(" + pid + ")");
+		assertEquals("20.0", lastSent(s));
+	}
+
 	private static final class FakeSocket extends Socket {
 		private final InputStream in = new ByteArrayInputStream(new byte[0]);
 		private final OutputStream out = new ByteArrayOutputStream();
