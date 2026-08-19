@@ -129,6 +129,12 @@ public class RemoteSession {
 	private int authFailures = 0;
 	private static final int MAX_AUTH_FAILURES = 3;
 
+	// consecutive failed setPlayer authorizations (only counted when player-tokens is configured);
+	// reset by a successful bind. Closes the connection at the threshold to stop token brute-forcing,
+	// mirroring the auth handshake's lockout. Only meaningful when per-player authz is on. #51
+	private int setPlayerAuthFailures = 0;
+	private static final int MAX_SETPLAYER_AUTH_FAILURES = 3;
+
 	/** One protocol command's parsing + execution. Bodies throw only unchecked exceptions, which
 	 *  handleCommand's outer catch turns into a "Fail" response - same as the former handle* chain. */
 	@FunctionalInterface
@@ -591,11 +597,24 @@ public class RemoteSession {
 		}
 		if (plugin.isPlayerTokensConfigured() && !isAuthorizedToBind(target, args)) {
 			send("Fail");
+			registerBindFailure();
 			return;
 		}
+		setPlayerAuthFailures = 0; // a successful authorized bind clears the brute-force counter (#51)
 		attachedPlayer = target;
 		boundPlayerId = target.getUniqueId();
 		send("1");
+	}
+
+	// Count a rejected authorized-bind attempt and, at the threshold, close the connection so a
+	// weak per-player token can't be brute-forced over the socket. Mirrors tryAuth's lockout. #51
+	private void registerBindFailure() {
+		setPlayerAuthFailures++;
+		if (setPlayerAuthFailures >= MAX_SETPLAYER_AUTH_FAILURES) {
+			plugin.getLogger().warning("Closing " + socket.getRemoteSocketAddress()
+				+ " after " + setPlayerAuthFailures + " failed setPlayer authorizations.");
+			close();
+		}
 	}
 
 	// Does this setPlayer request carry the right token for the target player? True only when the
