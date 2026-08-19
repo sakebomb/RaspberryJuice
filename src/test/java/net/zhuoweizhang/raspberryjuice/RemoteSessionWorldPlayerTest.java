@@ -119,6 +119,25 @@ class RemoteSessionWorldPlayerTest {
 		assertEquals(GameMode.SPECTATOR, p.getGameMode());
 	}
 
+	// ---- op-command config gate --------------------------------------------
+
+	@Test
+	void setGameMode_ignoredWhenOpCommandsDisabled() throws Exception {
+		java.lang.reflect.Field f = RaspberryJuicePlugin.class.getDeclaredField("opCommandsEnabled");
+		f.setAccessible(true);
+		f.setBoolean(plugin, false);
+		try {
+			RemoteSession s = session();
+			PlayerMock p = server.addPlayer();
+			plugin.hostPlayer = p;
+			GameMode before = p.getGameMode();
+			s.handleLine("player.setGameMode(1)");
+			assertEquals(before, p.getGameMode(), "op commands disabled -> setGameMode must be ignored");
+		} finally {
+			f.setBoolean(plugin, true); // restore for the other tests
+		}
+	}
+
 	// ---- clone limit guard --------------------------------------------------
 
 	@Test

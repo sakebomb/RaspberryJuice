@@ -538,61 +538,61 @@ public class RemoteSession {
 			} else if (c.equals("entity.getTile")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) send(entityGetTile(entity));
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 				
 			// entity.setTile
 			} else if (c.equals("entity.setTile")) {
 				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 
 			// entity.getPos
 			} else if (c.equals("entity.getPos")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) send(entityGetPos(entity));
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 			
 			// entity.setPos
 			} else if (c.equals("entity.setPos")) {
 				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 
 			// entity.setDirection
 			} else if (c.equals("entity.setDirection")) {
 				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetDirection(entity, args[1], args[2], args[3]);
-				else entityNotFound(args[0], false);
+				else entitySkipped(c, args[0], false);
 				
 			// entity.getDirection
 			} else if (c.equals("entity.getDirection")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) send(entityGetDirection(entity));
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 
 			// entity.setRotation
 			} else if (c.equals("entity.setRotation")) {
 				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetRotation(entity, args[1]);
-				else entityNotFound(args[0], false);
+				else entitySkipped(c, args[0], false);
 
 			// entity.getRotation
 			} else if (c.equals("entity.getRotation")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) send(entityGetRotation(entity, false));
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 			
 			// entity.setPitch
 			} else if (c.equals("entity.setPitch")) {
 				Entity entity = controllableEntity(args[0]);
 				if (entity != null) entitySetPitch(entity, args[1]);
-				else entityNotFound(args[0], false);
+				else entitySkipped(c, args[0], false);
 
 			// entity.getPitch
 			} else if (c.equals("entity.getPitch")) {
 				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
 				if (entity != null) send(entityGetPitch(entity));
-				else entityNotFound(args[0], true);
+				else entitySkipped(c, args[0], true);
 				
 			// entity.getEntities
 			} else if (c.equals("entity.getEntities")) {
@@ -717,11 +717,13 @@ public class RemoteSession {
 
 			// player.setGameMode(0=survival,1=creative,2=adventure,3=spectator)
 			} else if (c.equals("player.setGameMode")) {
+				if (!plugin.isOpCommandsEnabled()) return true; // gated by enable-op-commands
 				GameMode gm = gameMode(Integer.parseInt(args[0]));
 				if (gm != null) getCurrentPlayer().setGameMode(gm);
 
 			// player.give(blockId[,count]) - give the current player blocks
 			} else if (c.equals("player.give")) {
+				if (!plugin.isOpCommandsEnabled()) return true; // gated by enable-op-commands
 				BlockData bd = LegacyBlocks.toBlockData(Integer.parseInt(args[0]), (byte) 0);
 				if (bd != null) {
 					int count = (args.length > 1 && !args[1].isEmpty()) ? Integer.parseInt(args[1]) : 1;
@@ -788,7 +790,7 @@ public class RemoteSession {
 				if (e instanceof Mob mob) {
 					mob.getPathfinder().moveTo(parseRelativeLocation(args[1], args[2], args[3]));
 				} else {
-					logEntityControlSkip(c, args[0]);
+					entitySkipped(c, args[0], false);
 				}
 
 			// entity.lookAt(id,x,y,z) - face a point
@@ -802,7 +804,7 @@ public class RemoteSession {
 						e.teleport(loc);
 					}
 				} else {
-					logEntityControlSkip(c, args[0]);
+					entitySkipped(c, args[0], false);
 				}
 
 			// entity.getHealth(id)
@@ -823,7 +825,7 @@ public class RemoteSession {
 					double health = Math.max(0.0, Math.min(requested, maxHealth(le)));
 					le.setHealth(health);
 				} else {
-					logEntityControlSkip(c, args[0]);
+					entitySkipped(c, args[0], false);
 				}
 
 			// entity.setName(id,name) - visible name tag (name is a single token, no commas)
@@ -833,7 +835,7 @@ public class RemoteSession {
 					e.customName(Component.text(args[1]));
 					e.setCustomNameVisible(true);
 				} else {
-					logEntityControlSkip(c, args[0]);
+					entitySkipped(c, args[0], false);
 				}
 
 			// entity.setAI(id,0|1) - freeze/unfreeze the mob's AI
@@ -842,7 +844,7 @@ public class RemoteSession {
 				if (e instanceof LivingEntity le) {
 					le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
 				} else {
-					logEntityControlSkip(c, args[0]);
+					entitySkipped(c, args[0], false);
 				}
 
 			} else {
@@ -862,10 +864,6 @@ public class RemoteSession {
 	private org.bukkit.entity.Entity controllableEntity(String idArg) {
 		org.bukkit.entity.Entity e = plugin.getEntity(Integer.parseInt(idArg));
 		return (e instanceof Player) ? null : e;
-	}
-
-	private void logEntityControlSkip(String c, String id) {
-		plugin.getLogger().info(c + ": entity [" + id + "] not found or unsuitable");
 	}
 
 	// The programmable agent (turtle): a per-session marker driven by relative commands.
@@ -1158,9 +1156,9 @@ public class RemoteSession {
 		target.teleport(loc);
 	}
 
-	/** Logs a not-found for an entity command; some commands also answer "Fail", others stay silent. */
-	private void entityNotFound(String id, boolean sendFail) {
-		plugin.getLogger().info("Entity [" + id + "] not found.");
+	/** Logs that an entity command was skipped (missing/unusable target); optionally answers "Fail". */
+	private void entitySkipped(String command, String id, boolean sendFail) {
+		plugin.getLogger().info(command + ": entity [" + id + "] not found or unusable");
 		if (sendFail) send("Fail");
 	}
 
