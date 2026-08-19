@@ -33,6 +33,11 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
 - Id-targeted `entity.*` **mutators refuse to act on players** (a client could previously
   `entity.setHealth(<playerId>,0)` to kill any player). Read-only getters still resolve players.
 - Reactive event queues are **bounded** (drop-oldest) so an idle connection can't exhaust memory.
+- **Per-tick cuboid budget** (`max-blocks-per-tick`, default 10M) caps the total blocks all
+  `getBlocks`/`setBlocks`/`clone` ops may touch in one server tick. `max-blocks` bounds a single
+  request, but a tick drains up to 9000 commands — so a flood of near-cap requests could still
+  iterate/allocate tens of GB in one tick. `clone` reserves before allocating, so this also
+  bounds its snapshot even when `max-blocks` is unlimited.
 - `world.clone` is silent on an oversized region (like `world.setBlocks`) instead of sending a
   stray `Fail` that desynced the client.
 - Python client rejects newline-containing arguments and reports dropped connections clearly.

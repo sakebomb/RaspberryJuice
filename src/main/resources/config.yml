@@ -38,3 +38,10 @@ auth-token: ''
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.
 max-blocks: 1000000
+
+# Cumulative blocks that ALL cuboid ops (world.getBlocks / setBlocks / clone) may touch in a
+# single server tick. max-blocks caps one request, but a tick processes up to 9000 commands -
+# so without this a client could stack thousands of near-cap requests and iterate/allocate tens
+# of GB in one tick. Requests are rejected once the tick's running total would exceed this.
+# 0 disables the per-tick budget (not recommended - leaves the server open to that flood).
+max-blocks-per-tick: 10000000
