@@ -129,6 +129,17 @@ public class RemoteSession {
 	private int authFailures = 0;
 	private static final int MAX_AUTH_FAILURES = 3;
 
+	/** One protocol command's parsing + execution. Bodies throw only unchecked exceptions, which
+	 *  handleCommand's outer catch turns into a "Fail" response - same as the former handle* chain. */
+	@FunctionalInterface
+	interface CommandHandler {
+		void handle(String[] args, World world, Server server);
+	}
+
+	// Command name -> handler, replacing the old seven-way if/else dispatch ladder (#46). Built once
+	// per session from method references; lookup in handleCommand is O(1).
+	private final java.util.Map<String, CommandHandler> commandRegistry = buildCommandRegistry();
+
 	public RemoteSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException {
 		this.socket = socket;
 		this.plugin = plugin;
@@ -281,20 +292,17 @@ public class RemoteSession {
 		try {
 			// get the server
 			Server server = plugin.getServer();
-			
+
 			// get the world
 			World world = origin.getWorld();
-			if (handleWorldAndBulkEntityCommands(c, args, world)
-					|| handleEventAndPlayerCommands(c, args, world, server)
-					|| handleEntityAndWorldExtraCommands(c, args, world)
-					|| handleEntityControlCommands(c, args, world)
-					|| handleWorldPlayerControlCommands(c, args, world)
-					|| handleExtraEventCommands(c, args, world)
-					|| handleAgentCommands(c, args, world)) {
+			// O(1) registry lookup replaces the former seven-way handle*() if/else ladder (#46).
+			CommandHandler handler = commandRegistry.get(c);
+			if (handler == null) {
+				plugin.getLogger().warning(c + " is not supported.");
+				send("Fail");
 				return;
 			}
-			plugin.getLogger().warning(c + " is not supported.");
-			send("Fail");
+			handler.handle(args, world, server);
 		} catch (Exception e) {
 			//log with the offending command and full context instead of dumping to stdout
 			plugin.getLogger().log(java.util.logging.Level.WARNING, "Error handling command: " + c, e);
@@ -325,447 +333,548 @@ public class RemoteSession {
 		}
 	}
 
-	// The command handlers below are split from the original single dispatch chain into three
-	// contiguous groups; each returns true if it handled the command. Bodies are unchanged.
+	// Builds the command name -> handler map (#46). Grouped by domain for readability; a
+	// LinkedHashMap keeps a stable, greppable order. Each value is a method reference to a small
+	// cmd* method holding what was previously one branch of a handle* if/else ladder.
+	private java.util.Map<String, CommandHandler> buildCommandRegistry() {
+		java.util.Map<String, CommandHandler> r = new java.util.LinkedHashMap<>();
 
-	private boolean handleWorldAndBulkEntityCommands(String c, String[] args, World world) {
-			// world.getBlock
-			if (c.equals("world.getBlock")) {
-				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
+		// world.* blocks + bulk-entity queries
+		r.put("world.getBlock", this::cmdWorldGetBlock);
+		r.put("world.getBlocks", this::cmdWorldGetBlocks);
+		r.put("world.getBlockWithData", this::cmdWorldGetBlockWithData);
+		r.put("world.setBlock", this::cmdWorldSetBlock);
+		r.put("world.setBlocks", this::cmdWorldSetBlocks);
+		r.put("world.getPlayerIds", this::cmdWorldGetPlayerIds);
+		r.put("world.getPlayerId", this::cmdWorldGetPlayerId);
+		r.put("entity.getName", this::cmdEntityGetName);
+		r.put("world.getEntities", this::cmdWorldGetEntities);
+		r.put("world.removeEntity", this::cmdWorldRemoveEntity);
+		r.put("world.removeEntities", this::cmdWorldRemoveEntities);
+		r.put("world.getHeight", this::cmdWorldGetHeight);
+		r.put("world.setSign", this::cmdWorldSetSign);
+		r.put("world.spawnEntity", this::cmdWorldSpawnEntity);
+		r.put("world.getEntityTypes", this::cmdWorldGetEntityTypes);
 
-			// world.getBlocks
-			} else if (c.equals("world.getBlocks")) {
-				Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
-				if (exceedsBlockLimit(loc1, loc2)) {
-					plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-					send("Fail");
-				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
-					plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-						+ plugin.getMaxBlocksPerTick() + "); rejected.");
-					send("Fail");
-				} else {
-					send(getBlocks(loc1, loc2));
-				}
+		// world & player control (#15)
+		r.put("world.setTime", this::cmdWorldSetTime);
+		r.put("world.getTime", this::cmdWorldGetTime);
+		r.put("world.setWeather", this::cmdWorldSetWeather);
+		r.put("world.clone", this::cmdWorldClone);
+		r.put("player.setGameMode", this::cmdPlayerSetGameMode);
+		r.put("player.give", this::cmdPlayerGive);
 
-			// world.getBlockWithData
-			} else if (c.equals("world.getBlockWithData")) {
-				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Block block = world.getBlockAt(loc);
-				send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
-				
-			// world.setBlock
-			} else if (c.equals("world.setBlock")) {
-				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
-				
-			// world.setBlocks
-			} else if (c.equals("world.setBlocks")) {
-				Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
-				int blockType = Integer.parseInt(args[6]);
-				byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
-				if (exceedsBlockLimit(loc1, loc2)) {
-					plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
-					plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-						+ plugin.getMaxBlocksPerTick() + "); rejected.");
-				} else {
-					setCuboid(loc1, loc2, blockType, data);
-				}
-				
-			// world.getPlayerIds
-			} else if (c.equals("world.getPlayerIds")) {
-				StringBuilder bdr = new StringBuilder();
-				Collection<? extends Player> players = Bukkit.getOnlinePlayers();
-				if (players.size() > 0) {
-					for (Player p: players) {
-						bdr.append(p.getEntityId());
-						bdr.append("|");
-					}
-					bdr.deleteCharAt(bdr.length()-1);
-					send(bdr.toString());
-				} else {
-					send("Fail");
-				}
-				
-			// world.getPlayerId
-			} else if (c.equals("world.getPlayerId")) {
-				Player p = plugin.getNamedPlayer(args[0]);
-				if (p != null) {
-					send(p.getEntityId());
-				} else {
-					plugin.getLogger().info("Player [" + args[0] + "] not found.");
-					send("Fail");
-				}
-				
-			// entity.getListName
-			} else if (c.equals("entity.getName")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
-				if (e == null) {
-					plugin.getLogger().info("Player (or Entity) [" + args[0] + "] not found in entity.getName.");
-				} else if (e instanceof Player) {
-					Player p = (Player) e;
-					//sending list name because plugin.getNamedPlayer() uses list name
-					send(PlainText.plain(p.playerListName()));
-				} else if (e != null) {
-					send(e.getName());
-				}
-				
-			// world.getEntities
-			} else if (c.equals("world.getEntities")) {
-				int entityType = Integer.parseInt(args[0]);
-				send(getEntities(world, entityType));
-				
-			// world.removeEntity
-			} else if (c.equals("world.removeEntity")) {
-				int result = 0;
-				for (Entity e : world.getEntities()) {
-					if (e.getEntityId() == Integer.parseInt(args[0]))
-					{
-						e.remove();
-						result = 1;
-						break;
-					}
-				}
-				send(result);
-				
-			// world.removeEntities
-			} else if (c.equals("world.removeEntities")) {
-				int entityType = Integer.parseInt(args[0]);
-				int removedEntitiesCount = 0;
-				for (Entity e : world.getEntities()) {
-					if (entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
-					{
-						e.remove();
-						removedEntitiesCount++;
-					}
-				}
-				send(removedEntitiesCount);
+		// chat + session identity
+		r.put("chat.post", this::cmdChatPost);
+		r.put("setPlayer", this::cmdSetPlayer);
 
-			} else {
-				return false;
-			}
-			return true;
+		// event polls: global, per-entity, per-player, and the #13 snapshot streams
+		r.put("events.clear", this::cmdEventsClear);
+		r.put("events.block.hits", this::cmdEventsBlockHits);
+		r.put("events.chat.posts", this::cmdEventsChatPosts);
+		r.put("events.projectile.hits", this::cmdEventsProjectileHits);
+		r.put("entity.events.clear", this::cmdEntityEventsClear);
+		r.put("entity.events.block.hits", this::cmdEntityEventsBlockHits);
+		r.put("entity.events.chat.posts", this::cmdEntityEventsChatPosts);
+		r.put("entity.events.projectile.hits", this::cmdEntityEventsProjectileHits);
+		r.put("player.events.block.hits", this::cmdPlayerEventsBlockHits);
+		r.put("player.events.chat.posts", this::cmdPlayerEventsChatPosts);
+		r.put("player.events.projectile.hits", this::cmdPlayerEventsProjectileHits);
+		r.put("player.events.clear", this::cmdPlayerEventsClear);
+		r.put("events.player.moves", this::cmdEventsPlayerMoves);
+		r.put("events.block.places", this::cmdEventsBlockPlaces);
+		r.put("events.block.breaks", this::cmdEventsBlockBreaks);
+		r.put("events.player.deaths", this::cmdEventsPlayerDeaths);
+
+		// player.* pose + queries
+		r.put("player.getTile", this::cmdPlayerGetTile);
+		r.put("player.setTile", this::cmdPlayerSetTile);
+		r.put("player.getAbsPos", this::cmdPlayerGetAbsPos);
+		r.put("player.setAbsPos", this::cmdPlayerSetAbsPos);
+		r.put("player.getPos", this::cmdPlayerGetPos);
+		r.put("player.setPos", this::cmdPlayerSetPos);
+		r.put("player.setDirection", this::cmdPlayerSetDirection);
+		r.put("player.getDirection", this::cmdPlayerGetDirection);
+		r.put("player.setRotation", this::cmdPlayerSetRotation);
+		r.put("player.getRotation", this::cmdPlayerGetRotation);
+		r.put("player.setPitch", this::cmdPlayerSetPitch);
+		r.put("player.getPitch", this::cmdPlayerGetPitch);
+		r.put("player.getEntities", this::cmdPlayerGetEntities);
+		r.put("player.removeEntities", this::cmdPlayerRemoveEntities);
+
+		// entity.* pose + queries (id-targeted; mutators are ownership-gated via controllableEntity)
+		r.put("entity.getTile", this::cmdEntityGetTile);
+		r.put("entity.setTile", this::cmdEntitySetTile);
+		r.put("entity.getPos", this::cmdEntityGetPos);
+		r.put("entity.setPos", this::cmdEntitySetPos);
+		r.put("entity.setDirection", this::cmdEntitySetDirection);
+		r.put("entity.getDirection", this::cmdEntityGetDirection);
+		r.put("entity.setRotation", this::cmdEntitySetRotation);
+		r.put("entity.getRotation", this::cmdEntityGetRotation);
+		r.put("entity.setPitch", this::cmdEntitySetPitch);
+		r.put("entity.getPitch", this::cmdEntityGetPitch);
+		r.put("entity.getEntities", this::cmdEntityGetEntities);
+		r.put("entity.removeEntities", this::cmdEntityRemoveEntities);
+
+		// entity/mob control (#14)
+		r.put("entity.moveTo", this::cmdEntityMoveTo);
+		r.put("entity.lookAt", this::cmdEntityLookAt);
+		r.put("entity.getHealth", this::cmdEntityGetHealth);
+		r.put("entity.setHealth", this::cmdEntitySetHealth);
+		r.put("entity.setName", this::cmdEntitySetName);
+		r.put("entity.setAI", this::cmdEntitySetAI);
+
+		// programmable agent / turtle
+		r.put("agent.spawn", this::cmdAgentSpawn);
+		r.put("agent.despawn", this::cmdAgentDespawn);
+		r.put("agent.getPos", this::cmdAgentGetPos);
+		r.put("agent.getRotation", this::cmdAgentGetRotation);
+		r.put("agent.forward", this::cmdAgentForward);
+		r.put("agent.back", this::cmdAgentBack);
+		r.put("agent.up", this::cmdAgentUp);
+		r.put("agent.down", this::cmdAgentDown);
+		r.put("agent.turnLeft", this::cmdAgentTurnLeft);
+		r.put("agent.turnRight", this::cmdAgentTurnRight);
+		r.put("agent.setBlock", this::cmdAgentSetBlock);
+
+		return java.util.Collections.unmodifiableMap(r);
 	}
 
-	private boolean handleEventAndPlayerCommands(String c, String[] args, World world, Server server) {
-			// chat.post
-			if (c.equals("chat.post")) {
-				//create chat message from args as it was split by ,
-				String chatMessage = "";
-				int count;
-				for(count=0;count<args.length;count++){
-					chatMessage = chatMessage + args[count] + ",";
-				}
-				chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
-				//interpret legacy section (§) colour codes so chat.post renders as it did with broadcastMessage(String)
-				server.broadcast(PlainText.legacy(chatMessage));
+	// ==== command handlers: world blocks + bulk-entity queries ====
 
-			// events.clear
-			} else if (c.equals("events.clear")) {
-				interactEventQueue.clear();
-				chatPostedQueue.clear();
-				projectileHitQueue.clear();
-				moveQueue.clear();
-				blockPlaceQueue.clear();
-				blockBreakQueue.clear();
-				deathQueue.clear();
-				
-			// events.block.hits
-			} else if (c.equals("events.block.hits")) {
-				send(getBlockHits());
-				
-			// events.chat.posts
-			} else if (c.equals("events.chat.posts")) {
-				send(getChatPosts());
-				
-			// events.projectile.hits
-			} else if(c.equals("events.projectile.hits")) {
-				send(getProjectileHits());
-				
-			// entity.events.clear
-			} else if (c.equals("entity.events.clear")) {
-				int entityId = Integer.parseInt(args[0]);
-				clearEntityEvents(entityId);
-				
-			// entity.events.block.hits
-			} else if (c.equals("entity.events.block.hits")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getBlockHits(entityId));
-				
-			// entity.events.chat.posts
-			} else if (c.equals("entity.events.chat.posts")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getChatPosts(entityId));
-				
-			// entity.events.projectile.hits
-			} else if(c.equals("entity.events.projectile.hits")) {
-				int entityId = Integer.parseInt(args[0]);
-				send(getProjectileHits(entityId));
-			
-			// setPlayer(name): bind this connection to a named online player. Drives both command
-			// execution (attachedPlayer) and reactive-event scoping (boundPlayerId, matched by UUID
-			// so it survives relogs). Replies "1" on success, "Fail" if that player isn't online. #44
-			} else if (c.equals("setPlayer")) {
-				Player target = plugin.getNamedPlayer(args.length > 0 ? args[0] : null);
-				if (target != null) {
-					attachedPlayer = target;
-					boundPlayerId = target.getUniqueId();
-					send("1");
-				} else {
-					send("Fail");
-				}
-
-			// player.getTile
-			} else if (c.equals("player.getTile")) {
-				send(entityGetTile(getCurrentPlayer()));
-				
-			// player.setTile
-			} else if (c.equals("player.setTile")) {
-				entitySetTile(getCurrentPlayer(), args[0], args[1], args[2]);
-				
-			// player.getAbsPos
-			} else if (c.equals("player.getAbsPos")) {
-				Player currentPlayer = getCurrentPlayer();
-				//send absolute coordinates as "x,y,z" (not Location.toString())
-				Location loc = currentPlayer.getLocation();
-				send(loc.getX() + "," + loc.getY() + "," + loc.getZ());
-				
-			// player.setAbsPos
-			} else if (c.equals("player.setAbsPos")) {
-				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
-				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
-				Location loc = currentPlayer.getLocation();
-				loc.setX(Double.parseDouble(x));
-				loc.setY(Double.parseDouble(y));
-				loc.setZ(Double.parseDouble(z));
-				currentPlayer.teleport(loc);
-
-			// player.getPos
-			} else if (c.equals("player.getPos")) {
-				send(entityGetPos(getCurrentPlayer()));
-
-			// player.setPos
-			} else if (c.equals("player.setPos")) {
-				entitySetPos(getCurrentPlayer(), args[0], args[1], args[2]);
-
-			// player.setDirection
-			} else if (c.equals("player.setDirection")) {
-				entitySetDirection(getCurrentPlayer(), args[0], args[1], args[2]);
-
-			// player.getDirection
-			} else if (c.equals("player.getDirection")) {
-				send(entityGetDirection(getCurrentPlayer()));
-
-			// player.setRotation
-			} else if (c.equals("player.setRotation")) {
-				entitySetRotation(getCurrentPlayer(), args[0]);
-
-			// player.getRotation
-			} else if (c.equals("player.getRotation")) {
-				send(entityGetRotation(getCurrentPlayer(), true));
-
-			// player.setPitch
-			} else if (c.equals("player.setPitch")) {
-				entitySetPitch(getCurrentPlayer(), args[0]);
-				
-			// player.getPitch
-			} else if (c.equals("player.getPitch")) {
-				send(entityGetPitch(getCurrentPlayer()));
-
-			// player.getEntities
-			} else if (c.equals("player.getEntities")) {
-				Player currentPlayer = getCurrentPlayer();
-				int distance = Integer.parseInt(args[0]);
-				int entityTypeId = Integer.parseInt(args[1]);
-
-				send(getEntities(world, currentPlayer.getEntityId(), distance, entityTypeId));
-
-			// player.removeEntities
-			} else if (c.equals("player.removeEntities")) {
-				Player currentPlayer = getCurrentPlayer();
-				int distance = Integer.parseInt(args[0]);
-				int entityType = Integer.parseInt(args[1]);
-
-				send(removeEntities(world, currentPlayer.getEntityId(), distance, entityType));
-
-			// player.events.block.hits
-			} else if (c.equals("player.events.block.hits")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getBlockHits(currentPlayer.getEntityId()));
-				
-			// player.events.chat.posts
-			} else if (c.equals("player.events.chat.posts")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getChatPosts(currentPlayer.getEntityId()));
-				
-			// player.events.projectile.hits
-			} else if(c.equals("player.events.projectile.hits")) {
-				Player currentPlayer = getCurrentPlayer();
-				send(getProjectileHits(currentPlayer.getEntityId()));
-			
-			// player.events.clear
-			} else if (c.equals("player.events.clear")) {
-				Player currentPlayer = getCurrentPlayer();
-				clearEntityEvents(currentPlayer.getEntityId());
-
-			} else {
-				return false;
-			}
-			return true;
+	void cmdWorldGetBlock(String[] args, World world, Server server) {
+		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
 	}
 
-	private boolean handleEntityAndWorldExtraCommands(String c, String[] args, World world) {
-			// world.getHeight
-			if (c.equals("world.getHeight")) {
-				send(world.getHighestBlockYAt(geometry.parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
-				
-			// entity.getTile
-			} else if (c.equals("entity.getTile")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) send(entityGetTile(entity));
-				else entitySkipped(c, args[0], true);
-				
-			// entity.setTile
-			} else if (c.equals("entity.setTile")) {
-				Entity entity = controllableEntity(args[0]);
-				if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
-				else entitySkipped(c, args[0], true);
-
-			// entity.getPos
-			} else if (c.equals("entity.getPos")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) send(entityGetPos(entity));
-				else entitySkipped(c, args[0], true);
-			
-			// entity.setPos
-			} else if (c.equals("entity.setPos")) {
-				Entity entity = controllableEntity(args[0]);
-				if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
-				else entitySkipped(c, args[0], true);
-
-			// entity.setDirection
-			} else if (c.equals("entity.setDirection")) {
-				Entity entity = controllableEntity(args[0]);
-				if (entity != null) entitySetDirection(entity, args[1], args[2], args[3]);
-				else entitySkipped(c, args[0], false);
-				
-			// entity.getDirection
-			} else if (c.equals("entity.getDirection")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) send(entityGetDirection(entity));
-				else entitySkipped(c, args[0], true);
-
-			// entity.setRotation
-			} else if (c.equals("entity.setRotation")) {
-				Entity entity = controllableEntity(args[0]);
-				if (entity != null) entitySetRotation(entity, args[1]);
-				else entitySkipped(c, args[0], false);
-
-			// entity.getRotation
-			} else if (c.equals("entity.getRotation")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) send(entityGetRotation(entity, false));
-				else entitySkipped(c, args[0], true);
-			
-			// entity.setPitch
-			} else if (c.equals("entity.setPitch")) {
-				Entity entity = controllableEntity(args[0]);
-				if (entity != null) entitySetPitch(entity, args[1]);
-				else entitySkipped(c, args[0], false);
-
-			// entity.getPitch
-			} else if (c.equals("entity.getPitch")) {
-				Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-				if (entity != null) send(entityGetPitch(entity));
-				else entitySkipped(c, args[0], true);
-				
-			// entity.getEntities
-			} else if (c.equals("entity.getEntities")) {
-				int entityId = Integer.parseInt(args[0]);
-				int distance = Integer.parseInt(args[1]);
-				int entityTypeId = Integer.parseInt(args[2]);
-
-				send(getEntities(world, entityId, distance, entityTypeId));
-					
-			// entity.removeEntities
-			} else if (c.equals("entity.removeEntities")) {
-				int entityId = Integer.parseInt(args[0]);
-				int distance = Integer.parseInt(args[1]);
-				int entityType = Integer.parseInt(args[2]);
-
-				send(removeEntities(world, entityId, distance, entityType));
-				
-			// world.setSign
-			} else if (c.equals("world.setSign")) {
-				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Block thisBlock = world.getBlockAt(loc);
-				//blockType should be 68 for wall sign or 63 for standing sign
-				int blockType = Integer.parseInt(args[3]);
-				//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
-				//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
-				byte blockData = Byte.parseByte(args[4]);
-				BlockData signData = LegacyBlocks.toBlockData(blockType, blockData);
-				if (signData != null && !thisBlock.getBlockData().equals(signData)) {
-					thisBlock.setBlockData(signData, true);
-				}
-				if ( thisBlock.getState() instanceof Sign ) {
-					Sign sign = (Sign) thisBlock.getState();
-					SignSide front = sign.getSide(Side.FRONT);
-					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
-						front.line(i-5, Component.text(args[i]));
-					}
-					sign.update();
-				}
-			
-			// world.spawnEntity
-			} else if (c.equals("world.spawnEntity")) {
-				Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
-				ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
-				send(entity.getEntityId());
-
-			// world.getEntityTypes
-			} else if (c.equals("world.getEntityTypes")) {
-				StringBuilder bdr = new StringBuilder();				
-				for (EntityType entityType : EntityType.values()) {
-					if ( entityType.isSpawnable() && LegacyEntities.typeId(entityType) >= 0 ) {
-						bdr.append(LegacyEntities.typeId(entityType));
-						bdr.append(",");
-						bdr.append(entityType.toString());
-						bdr.append("|");
-					}
-				}
-				send(bdr.toString());
-
-			} else {
-				return false;
-			}
-			return true;
+	void cmdWorldGetBlocks(String[] args, World world, Server server) {
+		Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
+		if (exceedsBlockLimit(loc1, loc2)) {
+			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
+				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+			send("Fail");
+		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
+			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
+				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+				+ plugin.getMaxBlocksPerTick() + "); rejected.");
+			send("Fail");
+		} else {
+			send(getBlocks(loc1, loc2));
+		}
 	}
 
-	// Reactive event polls (#13): player moves / block places / block breaks / player deaths.
-	// Same drain-on-poll model as the existing events.* commands.
-	private boolean handleExtraEventCommands(String c, String[] args, World world) {
-			if (c.equals("events.player.moves")) {
-				send(drainEvents(moveQueue));
-			} else if (c.equals("events.block.places")) {
-				send(drainEvents(blockPlaceQueue));
-			} else if (c.equals("events.block.breaks")) {
-				send(drainEvents(blockBreakQueue));
-			} else if (c.equals("events.player.deaths")) {
-				send(drainEvents(deathQueue));
-			} else {
-				return false;
+	void cmdWorldGetBlockWithData(String[] args, World world, Server server) {
+		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Block block = world.getBlockAt(loc);
+		send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
+	}
+
+	void cmdWorldSetBlock(String[] args, World world, Server server) {
+		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
+	}
+
+	void cmdWorldSetBlocks(String[] args, World world, Server server) {
+		Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
+		int blockType = Integer.parseInt(args[6]);
+		byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
+		if (exceedsBlockLimit(loc1, loc2)) {
+			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
+				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
+			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
+				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+				+ plugin.getMaxBlocksPerTick() + "); rejected.");
+		} else {
+			setCuboid(loc1, loc2, blockType, data);
+		}
+	}
+
+	void cmdWorldGetPlayerIds(String[] args, World world, Server server) {
+		StringBuilder bdr = new StringBuilder();
+		Collection<? extends Player> players = Bukkit.getOnlinePlayers();
+		if (players.size() > 0) {
+			for (Player p: players) {
+				bdr.append(p.getEntityId());
+				bdr.append("|");
 			}
-			return true;
+			bdr.deleteCharAt(bdr.length()-1);
+			send(bdr.toString());
+		} else {
+			send("Fail");
+		}
+	}
+
+	void cmdWorldGetPlayerId(String[] args, World world, Server server) {
+		Player p = plugin.getNamedPlayer(args[0]);
+		if (p != null) {
+			send(p.getEntityId());
+		} else {
+			plugin.getLogger().info("Player [" + args[0] + "] not found.");
+			send("Fail");
+		}
+	}
+
+	void cmdEntityGetName(String[] args, World world, Server server) {
+		Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+		if (e == null) {
+			plugin.getLogger().info("Player (or Entity) [" + args[0] + "] not found in entity.getName.");
+		} else if (e instanceof Player) {
+			Player p = (Player) e;
+			//sending list name because plugin.getNamedPlayer() uses list name
+			send(PlainText.plain(p.playerListName()));
+		} else if (e != null) {
+			send(e.getName());
+		}
+	}
+
+	void cmdWorldGetEntities(String[] args, World world, Server server) {
+		int entityType = Integer.parseInt(args[0]);
+		send(getEntities(world, entityType));
+	}
+
+	void cmdWorldRemoveEntity(String[] args, World world, Server server) {
+		int result = 0;
+		for (Entity e : world.getEntities()) {
+			if (e.getEntityId() == Integer.parseInt(args[0]))
+			{
+				e.remove();
+				result = 1;
+				break;
+			}
+		}
+		send(result);
+	}
+
+	void cmdWorldRemoveEntities(String[] args, World world, Server server) {
+		int entityType = Integer.parseInt(args[0]);
+		int removedEntitiesCount = 0;
+		for (Entity e : world.getEntities()) {
+			if (entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
+			{
+				e.remove();
+				removedEntitiesCount++;
+			}
+		}
+		send(removedEntitiesCount);
+	}
+
+	// ==== command handlers: chat + session identity ====
+
+	void cmdChatPost(String[] args, World world, Server server) {
+		//create chat message from args as it was split by ,
+		String chatMessage = "";
+		int count;
+		for(count=0;count<args.length;count++){
+			chatMessage = chatMessage + args[count] + ",";
+		}
+		chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
+		//interpret legacy section (§) colour codes so chat.post renders as it did with broadcastMessage(String)
+		server.broadcast(PlainText.legacy(chatMessage));
+	}
+
+	// setPlayer(name): bind this connection to a named online player. Drives both command
+	// execution (attachedPlayer) and reactive-event scoping (boundPlayerId, matched by UUID
+	// so it survives relogs). Replies "1" on success, "Fail" if that player isn't online. #44
+	void cmdSetPlayer(String[] args, World world, Server server) {
+		Player target = plugin.getNamedPlayer(args.length > 0 ? args[0] : null);
+		if (target != null) {
+			attachedPlayer = target;
+			boundPlayerId = target.getUniqueId();
+			send("1");
+		} else {
+			send("Fail");
+		}
+	}
+
+	// ==== command handlers: event polls (global / per-entity / per-player) ====
+
+	void cmdEventsClear(String[] args, World world, Server server) {
+		interactEventQueue.clear();
+		chatPostedQueue.clear();
+		projectileHitQueue.clear();
+		moveQueue.clear();
+		blockPlaceQueue.clear();
+		blockBreakQueue.clear();
+		deathQueue.clear();
+	}
+
+	void cmdEventsBlockHits(String[] args, World world, Server server) {
+		send(getBlockHits());
+	}
+
+	void cmdEventsChatPosts(String[] args, World world, Server server) {
+		send(getChatPosts());
+	}
+
+	void cmdEventsProjectileHits(String[] args, World world, Server server) {
+		send(getProjectileHits());
+	}
+
+	void cmdEntityEventsClear(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		clearEntityEvents(entityId);
+	}
+
+	void cmdEntityEventsBlockHits(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		send(getBlockHits(entityId));
+	}
+
+	void cmdEntityEventsChatPosts(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		send(getChatPosts(entityId));
+	}
+
+	void cmdEntityEventsProjectileHits(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		send(getProjectileHits(entityId));
+	}
+
+	void cmdPlayerEventsBlockHits(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		send(getBlockHits(currentPlayer.getEntityId()));
+	}
+
+	void cmdPlayerEventsChatPosts(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		send(getChatPosts(currentPlayer.getEntityId()));
+	}
+
+	void cmdPlayerEventsProjectileHits(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		send(getProjectileHits(currentPlayer.getEntityId()));
+	}
+
+	void cmdPlayerEventsClear(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		clearEntityEvents(currentPlayer.getEntityId());
+	}
+
+	// ==== command handlers: player.* pose + queries ====
+
+	void cmdPlayerGetTile(String[] args, World world, Server server) {
+		send(entityGetTile(getCurrentPlayer()));
+	}
+
+	void cmdPlayerSetTile(String[] args, World world, Server server) {
+		entitySetTile(getCurrentPlayer(), args[0], args[1], args[2]);
+	}
+
+	void cmdPlayerGetAbsPos(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		//send absolute coordinates as "x,y,z" (not Location.toString())
+		Location loc = currentPlayer.getLocation();
+		send(loc.getX() + "," + loc.getY() + "," + loc.getZ());
+	}
+
+	void cmdPlayerSetAbsPos(String[] args, World world, Server server) {
+		String x = args[0], y = args[1], z = args[2];
+		Player currentPlayer = getCurrentPlayer();
+		//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
+		Location loc = currentPlayer.getLocation();
+		loc.setX(Double.parseDouble(x));
+		loc.setY(Double.parseDouble(y));
+		loc.setZ(Double.parseDouble(z));
+		currentPlayer.teleport(loc);
+	}
+
+	void cmdPlayerGetPos(String[] args, World world, Server server) {
+		send(entityGetPos(getCurrentPlayer()));
+	}
+
+	void cmdPlayerSetPos(String[] args, World world, Server server) {
+		entitySetPos(getCurrentPlayer(), args[0], args[1], args[2]);
+	}
+
+	void cmdPlayerSetDirection(String[] args, World world, Server server) {
+		entitySetDirection(getCurrentPlayer(), args[0], args[1], args[2]);
+	}
+
+	void cmdPlayerGetDirection(String[] args, World world, Server server) {
+		send(entityGetDirection(getCurrentPlayer()));
+	}
+
+	void cmdPlayerSetRotation(String[] args, World world, Server server) {
+		entitySetRotation(getCurrentPlayer(), args[0]);
+	}
+
+	// player.getRotation flips a negative yaw to positive (flipYaw=true) - the sole player-vs-entity
+	// asymmetry; entity.getRotation passes false.
+	void cmdPlayerGetRotation(String[] args, World world, Server server) {
+		send(entityGetRotation(getCurrentPlayer(), true));
+	}
+
+	void cmdPlayerSetPitch(String[] args, World world, Server server) {
+		entitySetPitch(getCurrentPlayer(), args[0]);
+	}
+
+	void cmdPlayerGetPitch(String[] args, World world, Server server) {
+		send(entityGetPitch(getCurrentPlayer()));
+	}
+
+	void cmdPlayerGetEntities(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		int distance = Integer.parseInt(args[0]);
+		int entityTypeId = Integer.parseInt(args[1]);
+
+		send(getEntities(world, currentPlayer.getEntityId(), distance, entityTypeId));
+	}
+
+	void cmdPlayerRemoveEntities(String[] args, World world, Server server) {
+		Player currentPlayer = getCurrentPlayer();
+		int distance = Integer.parseInt(args[0]);
+		int entityType = Integer.parseInt(args[1]);
+
+		send(removeEntities(world, currentPlayer.getEntityId(), distance, entityType));
+	}
+
+	// ==== command handlers: entity.* pose + queries, world height/sign/spawn ====
+	// "get" queries resolve any entity by id (reads are open); "set" mutators go through
+	// controllableEntity (ownership-gated, players excluded). setTile/setPos send "Fail" on a
+	// missing/uncontrollable entity; setDirection/setRotation/setPitch stay silent (entitySkipped false).
+
+	void cmdWorldGetHeight(String[] args, World world, Server server) {
+		send(world.getHighestBlockYAt(geometry.parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
+	}
+
+	void cmdEntityGetTile(String[] args, World world, Server server) {
+		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+		if (entity != null) send(entityGetTile(entity));
+		else entitySkipped("entity.getTile", args[0], true);
+	}
+
+	void cmdEntitySetTile(String[] args, World world, Server server) {
+		Entity entity = controllableEntity(args[0]);
+		if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
+		else entitySkipped("entity.setTile", args[0], true);
+	}
+
+	void cmdEntityGetPos(String[] args, World world, Server server) {
+		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+		if (entity != null) send(entityGetPos(entity));
+		else entitySkipped("entity.getPos", args[0], true);
+	}
+
+	void cmdEntitySetPos(String[] args, World world, Server server) {
+		Entity entity = controllableEntity(args[0]);
+		if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
+		else entitySkipped("entity.setPos", args[0], true);
+	}
+
+	void cmdEntitySetDirection(String[] args, World world, Server server) {
+		Entity entity = controllableEntity(args[0]);
+		if (entity != null) entitySetDirection(entity, args[1], args[2], args[3]);
+		else entitySkipped("entity.setDirection", args[0], false);
+	}
+
+	void cmdEntityGetDirection(String[] args, World world, Server server) {
+		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+		if (entity != null) send(entityGetDirection(entity));
+		else entitySkipped("entity.getDirection", args[0], true);
+	}
+
+	void cmdEntitySetRotation(String[] args, World world, Server server) {
+		Entity entity = controllableEntity(args[0]);
+		if (entity != null) entitySetRotation(entity, args[1]);
+		else entitySkipped("entity.setRotation", args[0], false);
+	}
+
+	void cmdEntityGetRotation(String[] args, World world, Server server) {
+		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+		if (entity != null) send(entityGetRotation(entity, false));
+		else entitySkipped("entity.getRotation", args[0], true);
+	}
+
+	void cmdEntitySetPitch(String[] args, World world, Server server) {
+		Entity entity = controllableEntity(args[0]);
+		if (entity != null) entitySetPitch(entity, args[1]);
+		else entitySkipped("entity.setPitch", args[0], false);
+	}
+
+	void cmdEntityGetPitch(String[] args, World world, Server server) {
+		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
+		if (entity != null) send(entityGetPitch(entity));
+		else entitySkipped("entity.getPitch", args[0], true);
+	}
+
+	void cmdEntityGetEntities(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		int distance = Integer.parseInt(args[1]);
+		int entityTypeId = Integer.parseInt(args[2]);
+
+		send(getEntities(world, entityId, distance, entityTypeId));
+	}
+
+	void cmdEntityRemoveEntities(String[] args, World world, Server server) {
+		int entityId = Integer.parseInt(args[0]);
+		int distance = Integer.parseInt(args[1]);
+		int entityType = Integer.parseInt(args[2]);
+
+		send(removeEntities(world, entityId, distance, entityType));
+	}
+
+	void cmdWorldSetSign(String[] args, World world, Server server) {
+		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Block thisBlock = world.getBlockAt(loc);
+		//blockType should be 68 for wall sign or 63 for standing sign
+		int blockType = Integer.parseInt(args[3]);
+		//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
+		//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
+		byte blockData = Byte.parseByte(args[4]);
+		BlockData signData = LegacyBlocks.toBlockData(blockType, blockData);
+		if (signData != null && !thisBlock.getBlockData().equals(signData)) {
+			thisBlock.setBlockData(signData, true);
+		}
+		if ( thisBlock.getState() instanceof Sign ) {
+			Sign sign = (Sign) thisBlock.getState();
+			SignSide front = sign.getSide(Side.FRONT);
+			for ( int i = 5; i-5 < 4 && i < args.length; i++) {
+				front.line(i-5, Component.text(args[i]));
+			}
+			sign.update();
+		}
+	}
+
+	void cmdWorldSpawnEntity(String[] args, World world, Server server) {
+		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
+		ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
+		send(entity.getEntityId());
+	}
+
+	void cmdWorldGetEntityTypes(String[] args, World world, Server server) {
+		StringBuilder bdr = new StringBuilder();
+		for (EntityType entityType : EntityType.values()) {
+			if ( entityType.isSpawnable() && LegacyEntities.typeId(entityType) >= 0 ) {
+				bdr.append(LegacyEntities.typeId(entityType));
+				bdr.append(",");
+				bdr.append(entityType.toString());
+				bdr.append("|");
+			}
+		}
+		send(bdr.toString());
+	}
+
+	// ==== command handlers: reactive event polls (#13) ====
+	// player moves / block places / block breaks / player deaths - same drain-on-poll model as events.*
+
+	void cmdEventsPlayerMoves(String[] args, World world, Server server) {
+		send(drainEvents(moveQueue));
+	}
+
+	void cmdEventsBlockPlaces(String[] args, World world, Server server) {
+		send(drainEvents(blockPlaceQueue));
+	}
+
+	void cmdEventsBlockBreaks(String[] args, World world, Server server) {
+		send(drainEvents(blockBreakQueue));
+	}
+
+	void cmdEventsPlayerDeaths(String[] args, World world, Server server) {
+		send(drainEvents(deathQueue));
 	}
 
 	/** Drain a snapshot-event queue to "x,y,z[,blockId],name" records joined by "|" (relative coords). */
@@ -782,58 +891,58 @@ public class RemoteSession {
 		return b.toString();
 	}
 
-	// World & player control (#15): time/weather, region clone, and player game-mode / give.
-	private boolean handleWorldPlayerControlCommands(String c, String[] args, World world) {
-			// world.setTime(ticks) / world.getTime()
-			if (c.equals("world.setTime")) {
-				world.setTime(Long.parseLong(args[0]));
-			} else if (c.equals("world.getTime")) {
-				send(world.getTime());
+	// ==== command handlers: world & player control (#15) ====
 
-			// world.setWeather(0=clear, 1=rain, 2=thunder)
-			} else if (c.equals("world.setWeather")) {
-				int w = Integer.parseInt(args[0]);
-				world.setStorm(w >= 1);
-				world.setThundering(w >= 2);
+	void cmdWorldSetTime(String[] args, World world, Server server) {
+		world.setTime(Long.parseLong(args[0]));
+	}
 
-			// world.clone(x1,y1,z1,x2,y2,z2,dx,dy,dz) - copy a cuboid to a destination corner
-			} else if (c.equals("world.clone")) {
-				Location a = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Location b = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
-				Location dest = geometry.parseRelativeBlockLocation(args[6], args[7], args[8]);
-				if (exceedsBlockLimit(a, b)) {
-					// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
-					plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
-						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-				} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(a, b))) {
-					// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
-					// or a huge clone under max-blocks=0 - can't OOM the tick
-					plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
-						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-						+ plugin.getMaxBlocksPerTick() + "); rejected.");
-				} else {
-					cloneRegion(world, a, b, dest);
-				}
+	void cmdWorldGetTime(String[] args, World world, Server server) {
+		send(world.getTime());
+	}
 
-			// player.setGameMode(0=survival,1=creative,2=adventure,3=spectator)
-			} else if (c.equals("player.setGameMode")) {
-				if (!plugin.isOpCommandsEnabled()) return true; // gated by enable-op-commands
-				GameMode gm = gameMode(Integer.parseInt(args[0]));
-				if (gm != null) getCurrentPlayer().setGameMode(gm);
+	// world.setWeather(0=clear, 1=rain, 2=thunder)
+	void cmdWorldSetWeather(String[] args, World world, Server server) {
+		int w = Integer.parseInt(args[0]);
+		world.setStorm(w >= 1);
+		world.setThundering(w >= 2);
+	}
 
-			// player.give(blockId[,count]) - give the current player blocks
-			} else if (c.equals("player.give")) {
-				if (!plugin.isOpCommandsEnabled()) return true; // gated by enable-op-commands
-				BlockData bd = LegacyBlocks.toBlockData(Integer.parseInt(args[0]), (byte) 0);
-				if (bd != null) {
-					int count = (args.length > 1 && !args[1].isEmpty()) ? Integer.parseInt(args[1]) : 1;
-					getCurrentPlayer().getInventory().addItem(new ItemStack(bd.getMaterial(), count));
-				}
+	// world.clone(x1,y1,z1,x2,y2,z2,dx,dy,dz) - copy a cuboid to a destination corner
+	void cmdWorldClone(String[] args, World world, Server server) {
+		Location a = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		Location b = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
+		Location dest = geometry.parseRelativeBlockLocation(args[6], args[7], args[8]);
+		if (exceedsBlockLimit(a, b)) {
+			// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
+			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
+				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(a, b))) {
+			// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
+			// or a huge clone under max-blocks=0 - can't OOM the tick
+			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
+				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+				+ plugin.getMaxBlocksPerTick() + "); rejected.");
+		} else {
+			cloneRegion(world, a, b, dest);
+		}
+	}
 
-			} else {
-				return false;
-			}
-			return true;
+	// player.setGameMode(0=survival,1=creative,2=adventure,3=spectator)
+	void cmdPlayerSetGameMode(String[] args, World world, Server server) {
+		if (!plugin.isOpCommandsEnabled()) return; // gated by enable-op-commands
+		GameMode gm = gameMode(Integer.parseInt(args[0]));
+		if (gm != null) getCurrentPlayer().setGameMode(gm);
+	}
+
+	// player.give(blockId[,count]) - give the current player blocks
+	void cmdPlayerGive(String[] args, World world, Server server) {
+		if (!plugin.isOpCommandsEnabled()) return; // gated by enable-op-commands
+		BlockData bd = LegacyBlocks.toBlockData(Integer.parseInt(args[0]), (byte) 0);
+		if (bd != null) {
+			int count = (args.length > 1 && !args[1].isEmpty()) ? Integer.parseInt(args[1]) : 1;
+			getCurrentPlayer().getInventory().addItem(new ItemStack(bd.getMaterial(), count));
+		}
 	}
 
 	/** Copy the cuboid [a..b] to the destination corner. Snapshots first so overlaps are safe. */
@@ -880,77 +989,77 @@ public class RemoteSession {
 		}
 	}
 
-	// Entity/mob control (#14): drive spawned entities - pathfinding movement, facing, health,
-	// name, AI toggle. "set" commands are fire-and-forget (log-and-skip on a missing/unsuitable
-	// entity, never send a stray response); entity.getHealth is a query and answers a value or "Fail".
-	private boolean handleEntityControlCommands(String c, String[] args, World world) {
-			// entity.moveTo(id,x,y,z) - walk the mob to a point using real pathfinding
-			if (c.equals("entity.moveTo")) {
-				Entity e = controllableEntity(args[0]);
-				if (e instanceof Mob mob) {
-					mob.getPathfinder().moveTo(geometry.parseRelativeLocation(args[1], args[2], args[3]));
-				} else {
-					entitySkipped(c, args[0], false);
-				}
+	// ==== command handlers: entity/mob control (#14) ====
+	// drive spawned entities - pathfinding movement, facing, health, name, AI toggle. "set" commands
+	// are fire-and-forget (log-and-skip on a missing/unsuitable entity, never send a stray response);
+	// entity.getHealth is a query and answers a value or "Fail".
 
-			// entity.lookAt(id,x,y,z) - face a point
-			} else if (c.equals("entity.lookAt")) {
-				Entity e = controllableEntity(args[0]);
-				if (e != null) {
-					Location loc = e.getLocation();
-					Vector dir = geometry.parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
-					if (dir.lengthSquared() > 0) {
-						loc.setDirection(dir);
-						e.teleport(loc);
-					}
-				} else {
-					entitySkipped(c, args[0], false);
-				}
+	// entity.moveTo(id,x,y,z) - walk the mob to a point using real pathfinding
+	void cmdEntityMoveTo(String[] args, World world, Server server) {
+		Entity e = controllableEntity(args[0]);
+		if (e instanceof Mob mob) {
+			mob.getPathfinder().moveTo(geometry.parseRelativeLocation(args[1], args[2], args[3]));
+		} else {
+			entitySkipped("entity.moveTo", args[0], false);
+		}
+	}
 
-			// entity.getHealth(id)
-			} else if (c.equals("entity.getHealth")) {
-				Entity e = plugin.getEntity(Integer.parseInt(args[0]));
-				if (e instanceof LivingEntity le) {
-					send(le.getHealth());
-				} else {
-					send("Fail");
-				}
-
-			// entity.setHealth(id,health) - clamped to [0, max]
-			} else if (c.equals("entity.setHealth")) {
-				Entity e = controllableEntity(args[0]);
-				if (e instanceof LivingEntity le) {
-					double requested = Double.parseDouble(args[1]);
-					if (!Double.isFinite(requested)) return true; // ignore NaN/Infinity
-					double health = Math.max(0.0, Math.min(requested, maxHealth(le)));
-					le.setHealth(health);
-				} else {
-					entitySkipped(c, args[0], false);
-				}
-
-			// entity.setName(id,name) - visible name tag (name is a single token, no commas)
-			} else if (c.equals("entity.setName")) {
-				Entity e = controllableEntity(args[0]);
-				if (e != null) {
-					e.customName(Component.text(args[1]));
-					e.setCustomNameVisible(true);
-				} else {
-					entitySkipped(c, args[0], false);
-				}
-
-			// entity.setAI(id,0|1) - freeze/unfreeze the mob's AI
-			} else if (c.equals("entity.setAI")) {
-				Entity e = controllableEntity(args[0]);
-				if (e instanceof LivingEntity le) {
-					le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
-				} else {
-					entitySkipped(c, args[0], false);
-				}
-
-			} else {
-				return false;
+	// entity.lookAt(id,x,y,z) - face a point
+	void cmdEntityLookAt(String[] args, World world, Server server) {
+		Entity e = controllableEntity(args[0]);
+		if (e != null) {
+			Location loc = e.getLocation();
+			Vector dir = geometry.parseRelativeLocation(args[1], args[2], args[3]).toVector().subtract(loc.toVector());
+			if (dir.lengthSquared() > 0) {
+				loc.setDirection(dir);
+				e.teleport(loc);
 			}
-			return true;
+		} else {
+			entitySkipped("entity.lookAt", args[0], false);
+		}
+	}
+
+	void cmdEntityGetHealth(String[] args, World world, Server server) {
+		Entity e = plugin.getEntity(Integer.parseInt(args[0]));
+		if (e instanceof LivingEntity le) {
+			send(le.getHealth());
+		} else {
+			send("Fail");
+		}
+	}
+
+	// entity.setHealth(id,health) - clamped to [0, max]
+	void cmdEntitySetHealth(String[] args, World world, Server server) {
+		Entity e = controllableEntity(args[0]);
+		if (e instanceof LivingEntity le) {
+			double requested = Double.parseDouble(args[1]);
+			if (!Double.isFinite(requested)) return; // ignore NaN/Infinity
+			double health = Math.max(0.0, Math.min(requested, maxHealth(le)));
+			le.setHealth(health);
+		} else {
+			entitySkipped("entity.setHealth", args[0], false);
+		}
+	}
+
+	// entity.setName(id,name) - visible name tag (name is a single token, no commas)
+	void cmdEntitySetName(String[] args, World world, Server server) {
+		Entity e = controllableEntity(args[0]);
+		if (e != null) {
+			e.customName(Component.text(args[1]));
+			e.setCustomNameVisible(true);
+		} else {
+			entitySkipped("entity.setName", args[0], false);
+		}
+	}
+
+	// entity.setAI(id,0|1) - freeze/unfreeze the mob's AI
+	void cmdEntitySetAI(String[] args, World world, Server server) {
+		Entity e = controllableEntity(args[0]);
+		if (e instanceof LivingEntity le) {
+			le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
+		} else {
+			entitySkipped("entity.setAI", args[0], false);
+		}
 	}
 
 	/** Max health from the entity's attribute, falling back to its current health. */
@@ -969,71 +1078,80 @@ public class RemoteSession {
 		return (e instanceof Player) ? null : e;
 	}
 
-	// The programmable agent (turtle): a per-session marker driven by relative commands.
-	// Movement/query before agent.spawn() answers "Fail"; agent.* is an additive namespace
-	// so existing mcpi clients are unaffected.
-	private boolean handleAgentCommands(String c, String[] args, World world) {
-			// agent.spawn - at given block, else at the current player
-			if (c.equals("agent.spawn")) {
-				int bx, by, bz;
-				float yaw;
-				if (args.length >= 3 && !args[0].isEmpty()) {
-					Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-					bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
-					yaw = 0f;
-				} else {
-					Location loc = getCurrentPlayer().getLocation();
-					bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
-					yaw = loc.getYaw();
-				}
-				if (agent != null) agent.remove();
-				agent = Agent.spawn(plugin, world, bx, by, bz, yaw);
+	// ==== command handlers: programmable agent / turtle ====
+	// a per-session marker driven by relative commands. Movement/query before agent.spawn() answers
+	// "Fail" (via requireAgent); agent.* is an additive namespace so existing mcpi clients are unaffected.
 
-			// agent.despawn
-			} else if (c.equals("agent.despawn")) {
-				if (agent != null) { agent.remove(); agent = null; }
+	// agent.spawn - at given block, else at the current player
+	void cmdAgentSpawn(String[] args, World world, Server server) {
+		int bx, by, bz;
+		float yaw;
+		if (args.length >= 3 && !args[0].isEmpty()) {
+			Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+			bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+			yaw = 0f;
+		} else {
+			Location loc = getCurrentPlayer().getLocation();
+			bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+			yaw = loc.getYaw();
+		}
+		if (agent != null) agent.remove();
+		agent = Agent.spawn(plugin, world, bx, by, bz, yaw);
+	}
 
-			// agent.getPos - block position, in the session's relative frame
-			} else if (c.equals("agent.getPos")) {
-				if (!requireAgent()) return true;
-				send(geometry.blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
+	void cmdAgentDespawn(String[] args, World world, Server server) {
+		if (agent != null) { agent.remove(); agent = null; }
+	}
 
-			// agent.getRotation - facing as a cardinal yaw (0=S,90=W,180=N,270=E)
-			} else if (c.equals("agent.getRotation")) {
-				if (!requireAgent()) return true;
-				send(agent.facing());
+	// agent.getPos - block position, in the session's relative frame
+	void cmdAgentGetPos(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		send(geometry.blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
+	}
 
-			// relative movement (n optional, default 1)
-			} else if (c.equals("agent.forward")) {
-				if (!requireAgent()) return true;
-				agent.forward(stepArg(args));
-			} else if (c.equals("agent.back")) {
-				if (!requireAgent()) return true;
-				agent.back(stepArg(args));
-			} else if (c.equals("agent.up")) {
-				if (!requireAgent()) return true;
-				agent.up(stepArg(args));
-			} else if (c.equals("agent.down")) {
-				if (!requireAgent()) return true;
-				agent.down(stepArg(args));
-			} else if (c.equals("agent.turnLeft")) {
-				if (!requireAgent()) return true;
-				agent.turnLeft();
-			} else if (c.equals("agent.turnRight")) {
-				if (!requireAgent()) return true;
-				agent.turnRight();
+	// agent.getRotation - facing as a cardinal yaw (0=S,90=W,180=N,270=E)
+	void cmdAgentGetRotation(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		send(agent.facing());
+	}
 
-			// agent.setBlock - place a block at the agent's position (id 0 clears to air)
-			} else if (c.equals("agent.setBlock")) {
-				if (!requireAgent()) return true;
-				int id = Integer.parseInt(args[0]);
-				byte data = (args.length > 1 ? Byte.parseByte(args[1]) : (byte) 0);
-				updateBlock(world, new Location(world, agent.x(), agent.y(), agent.z()), id, data);
+	// relative movement (n optional, default 1)
+	void cmdAgentForward(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.forward(stepArg(args));
+	}
 
-			} else {
-				return false;
-			}
-			return true;
+	void cmdAgentBack(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.back(stepArg(args));
+	}
+
+	void cmdAgentUp(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.up(stepArg(args));
+	}
+
+	void cmdAgentDown(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.down(stepArg(args));
+	}
+
+	void cmdAgentTurnLeft(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.turnLeft();
+	}
+
+	void cmdAgentTurnRight(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		agent.turnRight();
+	}
+
+	// agent.setBlock - place a block at the agent's position (id 0 clears to air)
+	void cmdAgentSetBlock(String[] args, World world, Server server) {
+		if (!requireAgent()) return;
+		int id = Integer.parseInt(args[0]);
+		byte data = (args.length > 1 ? Byte.parseByte(args[1]) : (byte) 0);
+		updateBlock(world, new Location(world, agent.x(), agent.y(), agent.z()), id, data);
 	}
 
 	/** Answers "Fail" and clears a dead/never-spawned agent; true only if a live agent exists. */
@@ -1420,6 +1538,12 @@ public class RemoteSession {
 		java.util.List<String> sent = new java.util.ArrayList<String>();
 		outQueue.drainTo(sent);
 		return sent;
+	}
+
+	/** Test-only view of the dispatch registry (#46) - guards against a command being dropped or
+	 *  misregistered when the registry is edited. */
+	java.util.Set<String> registeredCommandsForTest() {
+		return commandRegistry.keySet();
 	}
 
 	public void close() {
