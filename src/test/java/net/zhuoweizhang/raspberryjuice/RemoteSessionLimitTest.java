@@ -41,9 +41,9 @@ class RemoteSessionLimitTest {
 	void blockVolume_isInclusiveInAllAxes() throws Exception {
 		RemoteSession s = session(0);
 		// 0..1 in each axis -> 2*2*2 = 8
-		assertEquals(8L, s.blockVolume(at(0, 0, 0), at(1, 1, 1)));
+		assertEquals(8L, RelativeGeometry.blockVolume(at(0, 0, 0), at(1, 1, 1)));
 		// single block
-		assertEquals(1L, s.blockVolume(at(5, 5, 5), at(5, 5, 5)));
+		assertEquals(1L, RelativeGeometry.blockVolume(at(5, 5, 5), at(5, 5, 5)));
 	}
 
 	@Test
@@ -72,7 +72,7 @@ class RemoteSessionLimitTest {
 		// coords are clamped to int range; this span multiplies out past 2^63 and
 		// must NOT wrap to a small value that slips past the limit
 		assertEquals(Long.MAX_VALUE,
-				s.blockVolume(at(Integer.MIN_VALUE, 0, 0), at(Integer.MAX_VALUE, 65535, 65535)));
+				RelativeGeometry.blockVolume(at(Integer.MIN_VALUE, 0, 0), at(Integer.MAX_VALUE, 65535, 65535)));
 		assertTrue(s.exceedsBlockLimit(at(Integer.MIN_VALUE, 0, 0), at(Integer.MAX_VALUE, 65535, 65535)));
 	}
 }
