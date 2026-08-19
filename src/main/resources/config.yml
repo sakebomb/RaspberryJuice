@@ -26,6 +26,14 @@ welcome-message: true
 # shared/survival server so a socket client can't self-grant creative mode or items.
 enable-op-commands: true
 
+# Whether the reactive event streams (events.player.moves / block.breaks / block.places /
+# player.deaths) report EVERY player's activity to every connected socket. That is effectively a
+# live player-tracking feed, so it defaults to false: each session sees only its OWN player's
+# events (the session's attached player, or the host player for a headless script). Set true only
+# on a trusted, single-user server where you want whole-world / region triggers that fire on any
+# player's actions.
+allow-global-events: false
+
 # Optional shared secret. When set (non-empty), a client must authenticate before any other
 # command by sending  auth(<token>)  - all other commands answer "Fail" until it does, and the
 # connection is dropped after a few bad attempts. Empty (default) = no authentication.

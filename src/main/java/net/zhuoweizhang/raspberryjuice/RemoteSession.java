@@ -1129,6 +1129,16 @@ public class RemoteSession {
 		}
 		return player;
 	}
+
+	// True if `p` is this session's effective player - used to scope reactive event streams so a
+	// session only sees its own player's moves/deaths/block edits (unless allow-global-events is on).
+	// Resolves the effective player the same way getCurrentPlayer() does (attached, else host), but
+	// WITHOUT latching attachedPlayer, since this runs in hot event handlers as a passive filter.
+	boolean isForCurrentPlayer(Player p) {
+		if (p == null) return false;
+		Player effective = (attachedPlayer != null) ? attachedPlayer : plugin.getHostPlayer();
+		return effective != null && effective.getUniqueId().equals(p.getUniqueId());
+	}
 	
 	public Player getCurrentPlayer(String name) {
 		// if a named player is returned use that

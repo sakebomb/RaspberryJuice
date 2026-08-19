@@ -13,6 +13,14 @@ a teaching/scripting bridge — but it means:
 - On a shared/survival server, treat a socket connection as equivalent to operator access to
   the game world. The `max-blocks` cap guards against cuboid DoS; id-targeted `entity.*`
   mutators refuse to act on players; but the surface is still powerful.
+- **Reactive event scoping is best-effort on multi-player servers.** The reactive streams
+  (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) are scoped to
+  the session's own player by default (`allow-global-events: false`) so a client isn't handed
+  a live feed of everyone's activity. But a session that never binds to a specific player
+  falls back to the *host* player (the first player online), so on a server with several
+  players an unbound client can still observe that one player's events. For real per-client
+  isolation, require an `auth-token` and keep clients bound to their own player; a
+  connection-identity-based binding is tracked for a future release.
 
 ## Hardening a networked deployment
 
