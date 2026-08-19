@@ -72,7 +72,9 @@ control**, and world/player commands. See [`client/README.md`](client/README.md)
 
 ### Entity/mob control
 
-Drive spawned entities (use `world.spawnEntity` to create one and get its id):
+Drive spawned entities (use `world.spawnEntity` to create one and get its id). **Only the
+connection that spawned an entity may _control_ it** (per-session ownership), so one client
+can't move or kill another client's mobs - reads are open, mutation is owner-only:
 
  - entity.moveTo(id,x,y,z) - walk a mob to a point using real pathfinding (mobs only)
  - entity.lookAt(id,x,y,z) - turn the entity to face a point

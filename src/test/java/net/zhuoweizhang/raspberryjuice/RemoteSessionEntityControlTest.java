@@ -70,8 +70,10 @@ class RemoteSessionEntityControlTest {
 		return s;
 	}
 
-	private LivingEntity spawnZombie(double x, double y, double z) {
-		return (LivingEntity) world.spawnEntity(new Location(world, x, y, z), EntityType.ZOMBIE);
+	private LivingEntity spawnZombie(RemoteSession owner, double x, double y, double z) {
+		LivingEntity zed = (LivingEntity) world.spawnEntity(new Location(world, x, y, z), EntityType.ZOMBIE);
+		owner.ownedEntities.add(zed.getEntityId()); // the session that spawned it owns it
+		return zed;
 	}
 
 	private String lastSent(RemoteSession s) {
@@ -85,7 +87,7 @@ class RemoteSessionEntityControlTest {
 	@Test
 	void setThenGetHealth() throws Exception {
 		RemoteSession s = session();
-		LivingEntity z = spawnZombie(0, 64, 0);
+		LivingEntity z = spawnZombie(s, 0, 64, 0);
 		s.handleLine("entity.setHealth(" + z.getEntityId() + ",10)");
 		s.handleLine("entity.getHealth(" + z.getEntityId() + ")");
 		assertEquals("10.0", lastSent(s));
@@ -94,7 +96,7 @@ class RemoteSessionEntityControlTest {
 	@Test
 	void setHealth_clampsToMax() throws Exception {
 		RemoteSession s = session();
-		LivingEntity z = spawnZombie(0, 64, 0);
+		LivingEntity z = spawnZombie(s, 0, 64, 0);
 		double max = z.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH).getValue();
 		s.handleLine("entity.setHealth(" + z.getEntityId() + ",9999)");
 		s.handleLine("entity.getHealth(" + z.getEntityId() + ")");
@@ -113,7 +115,7 @@ class RemoteSessionEntityControlTest {
 	@Test
 	void setName_setsVisibleCustomName() throws Exception {
 		RemoteSession s = session();
-		LivingEntity z = spawnZombie(0, 64, 0);
+		LivingEntity z = spawnZombie(s, 0, 64, 0);
 		s.handleLine("entity.setName(" + z.getEntityId() + ",Bob)");
 		assertEquals(Component.text("Bob"), z.customName());
 		assertTrue(z.isCustomNameVisible());
@@ -122,7 +124,7 @@ class RemoteSessionEntityControlTest {
 	@Test
 	void setAI_disablesAI() throws Exception {
 		RemoteSession s = session();
-		LivingEntity z = spawnZombie(0, 64, 0);
+		LivingEntity z = spawnZombie(s, 0, 64, 0);
 		s.handleLine("entity.setAI(" + z.getEntityId() + ",0)");
 		assertFalse(z.hasAI());
 		s.handleLine("entity.setAI(" + z.getEntityId() + ",1)");
@@ -134,7 +136,7 @@ class RemoteSessionEntityControlTest {
 	@Test
 	void lookAt_facesTheTarget() throws Exception {
 		RemoteSession s = session();
-		LivingEntity z = spawnZombie(0, 64, 0);
+		LivingEntity z = spawnZombie(s, 0, 64, 0);
 		s.handleLine("entity.lookAt(" + z.getEntityId() + ",0,64,5)"); // look south (+z)
 		assertTrue(z.getLocation().getDirection().getZ() > 0.5,
 			"expected to face +z, was " + z.getLocation().getDirection());
@@ -147,6 +149,7 @@ class RemoteSessionEntityControlTest {
 		RemoteSession s = session();
 		// armor stand is a LivingEntity but not a Mob -> can't pathfind -> skip silently
 		LivingEntity stand = (LivingEntity) world.spawnEntity(new Location(world, 0, 64, 0), EntityType.ARMOR_STAND);
+		s.ownedEntities.add(stand.getEntityId());
 		s.handleLine("entity.moveTo(" + stand.getEntityId() + ",5,64,5)");
 		assertTrue(s.drainSentForTest().isEmpty(), "moveTo on a non-mob must not respond");
 	}
@@ -167,6 +170,22 @@ class RemoteSessionEntityControlTest {
 		// but getHealth (a read, not a mutation) may still resolve a player
 		s.handleLine("entity.getHealth(" + pid + ")");
 		assertEquals("20.0", lastSent(s));
+	}
+
+	// ---- per-session ownership: one session can't mutate another's entity ----
+
+	@Test
+	void mutation_refused_forEntityOwnedByAnotherSession() throws Exception {
+		RemoteSession alice = session();
+		RemoteSession bob = session();
+		LivingEntity z = spawnZombie(alice, 0, 64, 0); // owned by alice
+		z.setHealth(20.0);
+		// bob does not own it -> setHealth must be ignored
+		bob.handleLine("entity.setHealth(" + z.getEntityId() + ",1)");
+		assertEquals(20.0, z.getHealth(), "a session must not mutate an entity it didn't spawn");
+		// alice, the owner, can
+		alice.handleLine("entity.setHealth(" + z.getEntityId() + ",5)");
+		assertEquals(5.0, z.getHealth());
 	}
 
 	private static final class FakeSocket extends Socket {

@@ -93,10 +93,12 @@ class RemoteSessionEntityCommandTest {
 		return p;
 	}
 
-	private org.bukkit.entity.Entity entityAt(Location location) {
-		// a non-player entity: id-targeted entity.* mutators refuse players (security), so use a mob
+	private org.bukkit.entity.Entity entityAt(RemoteSession owner, Location location) {
+		// a non-player entity the session owns: id-targeted entity.* mutators refuse players and
+		// entities not spawned by this session (security), so use an owned mob.
 		org.bukkit.entity.Entity e = world.spawnEntity(location, org.bukkit.entity.EntityType.ZOMBIE);
 		e.teleport(location);
+		owner.ownedEntities.add(e.getEntityId());
 		return e;
 	}
 
@@ -136,7 +138,7 @@ class RemoteSessionEntityCommandTest {
 	@Test
 	void entityGetRotation_keepsNegativeYaw() throws Exception {
 		RemoteSession s = session();
-		org.bukkit.entity.Entity e = entityAt(loc(0, 0, 0, -90f, 0f));
+		org.bukkit.entity.Entity e = entityAt(s, loc(0, 0, 0, -90f, 0f));
 		s.handleLine("entity.getRotation(" + e.getEntityId() + ")");
 		assertEquals("-90.0", lastSent(s));
 	}
@@ -160,7 +162,7 @@ class RemoteSessionEntityCommandTest {
 	@Test
 	void entitySetPos_readsCoordsAfterTheIdArgument() throws Exception {
 		RemoteSession s = session();
-		org.bukkit.entity.Entity e = entityAt(loc(0, 0, 0, 0f, 0f));
+		org.bukkit.entity.Entity e = entityAt(s, loc(0, 0, 0, 0f, 0f));
 		s.handleLine("entity.setPos(" + e.getEntityId() + ",5,6,7)");
 
 		Location dest = e.getLocation();
