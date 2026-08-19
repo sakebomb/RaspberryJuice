@@ -167,6 +167,19 @@ def test_auth_rejected_raises(server_and_mc):
         server_and_mc({"auth": "Fail"}, token="wrong-token")
 
 
+def test_set_player_binds_by_name(server_and_mc):
+    srv, mc = server_and_mc({"setPlayer": "1"})
+    mc.set_player("Alice")
+    srv.wait_for(1)
+    assert srv.received == ["setPlayer(Alice)"]
+
+
+def test_set_player_offline_raises(server_and_mc):
+    srv, mc = server_and_mc({"setPlayer": "Fail"})
+    with pytest.raises(RequestError):
+        mc.set_player("Ghost")
+
+
 def test_reactive_events(server_and_mc):
     srv, mc = server_and_mc({
         "events.player.moves": "3,64,-2,Alice|4,64,-2,Alice",

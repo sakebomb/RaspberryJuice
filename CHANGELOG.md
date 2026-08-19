@@ -16,6 +16,8 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
   `player.setGameMode / give`.
 - **Reactive events** — `events.player.moves`, `events.block.breaks`, `events.block.places`,
   `events.player.deaths`. Scoped to the session's own player by default (see Security).
+- **`setPlayer(<name>)`** — bind a connection to a named online player (Python:
+  `mc.set_player("Alice")`); scopes `player.*` commands and reactive events to that player.
 - **Python client** — a typed, `pip`-installable `raspberryjuice` package in `client/`, with
   examples and a test suite.
 - **CI** — GitHub Actions build/test on JDK 25, a live Paper 26.2 integration smoke, and the
@@ -33,6 +35,10 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
   (a live tracking feed). Each session now sees only its own player's events. New
   `allow-global-events` config (default `false`) restores global broadcast for whole-world /
   region triggers on a trusted single-user server.
+- **Per-connection event scoping now fails closed** — event scoping is keyed to a player a
+  connection explicitly bound to via `setPlayer(<name>)` (by UUID), not the old fallback to the
+  first-online (host) player. An unbound connection on a multi-player server now receives **no**
+  player's events instead of an arbitrary one's; the lone single-player case is unchanged.
 
 ### Fixed / Hardened
 - Id-targeted `entity.*` **mutators refuse to act on players** (a client could previously

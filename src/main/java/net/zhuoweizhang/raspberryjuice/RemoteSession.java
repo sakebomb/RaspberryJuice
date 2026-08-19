@@ -110,6 +110,12 @@ public class RemoteSession {
 
 	private Player attachedPlayer = null;
 
+	// The player this connection has EXPLICITLY bound to via setPlayer(name), by UUID (stable across
+	// relogs; a UUID compare is cheap enough for the per-event scoping hot path). null until bound.
+	// Distinct from attachedPlayer, which latches to the host (first-online) player for command
+	// execution: only an explicit bind is trusted for scoping reactive events (see isForCurrentPlayer).
+	private java.util.UUID boundPlayerId = null;
+
 	// the per-session programmable agent (turtle), null until agent.spawn() is called
 	private Agent agent = null;
 
@@ -503,8 +509,21 @@ public class RemoteSession {
 				int entityId = Integer.parseInt(args[0]);
 				send(getProjectileHits(entityId));
 			
+			// setPlayer(name): bind this connection to a named online player. Drives both command
+			// execution (attachedPlayer) and reactive-event scoping (boundPlayerId, matched by UUID
+			// so it survives relogs). Replies "1" on success, "Fail" if that player isn't online. #44
+			} else if (c.equals("setPlayer")) {
+				Player target = plugin.getNamedPlayer(args.length > 0 ? args[0] : null);
+				if (target != null) {
+					attachedPlayer = target;
+					boundPlayerId = target.getUniqueId();
+					send("1");
+				} else {
+					send("Fail");
+				}
+
 			// player.getTile
-			}else if (c.equals("player.getTile")) {
+			} else if (c.equals("player.getTile")) {
 				send(entityGetTile(getCurrentPlayer()));
 				
 			// player.setTile
@@ -1129,14 +1148,17 @@ public class RemoteSession {
 		return player;
 	}
 
-	// True if `p` is this session's effective player - used to scope reactive event streams so a
-	// session only sees its own player's moves/deaths/block edits (unless allow-global-events is on).
-	// Resolves the effective player the same way getCurrentPlayer() does (attached, else host), but
-	// WITHOUT latching attachedPlayer, since this runs in hot event handlers as a passive filter.
+	// True if `p` is this session's player - used to scope reactive event streams so a session only
+	// sees its own player's moves/deaths/block edits (unless allow-global-events is on). Runs in hot
+	// event handlers as a passive filter, so it never latches state. Fails CLOSED (#44): an unbound
+	// session on a multi-player server matches nobody, so it can't observe an arbitrary real player.
+	//   1. explicitly bound (setPlayer) -> match that player, independent of who else is online;
+	//   2. unbound but <=1 player online -> match (unambiguous: single-player / lone-user case);
+	//   3. unbound with several players online -> false (no silent fallback to the first-online player).
 	boolean isForCurrentPlayer(Player p) {
 		if (p == null) return false;
-		Player effective = (attachedPlayer != null) ? attachedPlayer : plugin.getHostPlayer();
-		return effective != null && effective.getUniqueId().equals(p.getUniqueId());
+		if (boundPlayerId != null) return boundPlayerId.equals(p.getUniqueId());
+		return plugin.getServer().getOnlinePlayers().size() <= 1;
 	}
 	
 	public Player getCurrentPlayer(String name) {

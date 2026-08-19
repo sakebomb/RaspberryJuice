@@ -13,14 +13,19 @@ a teaching/scripting bridge — but it means:
 - On a shared/survival server, treat a socket connection as equivalent to operator access to
   the game world. The `max-blocks` cap guards against cuboid DoS; id-targeted `entity.*`
   mutators refuse to act on players; but the surface is still powerful.
-- **Reactive event scoping is best-effort on multi-player servers.** The reactive streams
-  (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) are scoped to
-  the session's own player by default (`allow-global-events: false`) so a client isn't handed
-  a live feed of everyone's activity. But a session that never binds to a specific player
-  falls back to the *host* player (the first player online), so on a server with several
-  players an unbound client can still observe that one player's events. For real per-client
-  isolation, require an `auth-token` and keep clients bound to their own player; a
-  connection-identity-based binding is tracked for a future release.
+- **Reactive event streams are scoped per connection and fail closed.** The reactive streams
+  (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) report only the
+  session's own player by default (`allow-global-events: false`) so a client isn't handed a
+  live feed of everyone's activity. A connection declares which player it is with
+  `setPlayer(<name>)` (Python: `mc.set_player("Alice")`), and events are matched to that player
+  by UUID. An **unbound** connection on a multi-player server receives **no** player's events
+  at all (fail closed) — it can no longer fall back to observing an arbitrary player. The lone
+  single-player / single-user case still works without binding (there's no other player to
+  leak). Note that `setPlayer` takes any online player's name and performs **no ownership
+  check** — `auth-token` gates *who may connect*, not *which player a connection may bind to or
+  observe*. On a server with mutually-distrusting clients, any authenticated client can
+  `setPlayer("<someone-else>")` and watch that player's event feed; do not rely on `setPlayer`
+  for isolation between untrusted parties. Per-player authorization is tracked in issue #47.
 
 ## Hardening a networked deployment
 
