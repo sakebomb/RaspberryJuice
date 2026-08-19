@@ -99,6 +99,10 @@ public class RemoteSession {
 
 	private int maxCommandsPerTick = DEFAULT_MAX_COMMANDS_PER_TICK;
 
+	// cumulative blocks consumed by cuboid ops (getBlocks/setBlocks/clone) in the current tick;
+	// reset to 0 at the top of every tick() and charged against getMaxBlocksPerTick().
+	private long blocksUsedThisTick = 0;
+
 	private volatile boolean closed = false;
 
 	private Player attachedPlayer = null;
@@ -209,6 +213,7 @@ public class RemoteSession {
 					throw new IllegalArgumentException("Unknown location type " + locationType);
 			}
 		}
+		blocksUsedThisTick = 0; // reset the per-tick cuboid budget before draining the queue
 		int processedCount = 0;
 		String message;
 		while ((message = inQueue.poll()) != null) {
@@ -317,6 +322,11 @@ public class RemoteSession {
 					plugin.getLogger().warning("world.getBlocks request of " + blockVolume(loc1, loc2)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
 					send("Fail");
+				} else if (!reserveBlockBudget(blockVolume(loc1, loc2))) {
+					plugin.getLogger().warning("world.getBlocks request of " + blockVolume(loc1, loc2)
+						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+						+ plugin.getMaxBlocksPerTick() + "); rejected.");
+					send("Fail");
 				} else {
 					send(getBlocks(loc1, loc2));
 				}
@@ -341,6 +351,10 @@ public class RemoteSession {
 				if (exceedsBlockLimit(loc1, loc2)) {
 					plugin.getLogger().warning("world.setBlocks request of " + blockVolume(loc1, loc2)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+				} else if (!reserveBlockBudget(blockVolume(loc1, loc2))) {
+					plugin.getLogger().warning("world.setBlocks request of " + blockVolume(loc1, loc2)
+						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+						+ plugin.getMaxBlocksPerTick() + "); rejected.");
 				} else {
 					setCuboid(loc1, loc2, blockType, data);
 				}
@@ -758,6 +772,12 @@ public class RemoteSession {
 					// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
 					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
 						+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+				} else if (!reserveBlockBudget(blockVolume(a, b))) {
+					// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
+					// or a huge clone under max-blocks=0 - can't OOM the tick
+					plugin.getLogger().warning("world.clone of " + blockVolume(a, b)
+						+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
+						+ plugin.getMaxBlocksPerTick() + "); rejected.");
 				} else {
 					cloneRegion(world, a, b, dest);
 				}
@@ -1018,6 +1038,21 @@ public class RemoteSession {
 	boolean exceedsBlockLimit(Location p1, Location p2) {
 		int max = plugin.getMaxBlocks();
 		return max > 0 && blockVolume(p1, p2) > max;
+	}
+
+	// Charge `volume` blocks against this tick's cumulative cuboid budget. Returns true and
+	// records the spend if it fits; returns false (spending nothing) if it would exceed
+	// max-blocks-per-tick. This bounds a flood of individually-legal cuboid ops in one tick,
+	// and - because callers reserve BEFORE allocating/iterating - also caps clone's snapshot
+	// allocation even when max-blocks is 0 (unlimited). 0 = unlimited per-tick budget.
+	boolean reserveBlockBudget(long volume) {
+		long cap = plugin.getMaxBlocksPerTick();
+		if (cap <= 0) return true; // per-tick budget disabled
+		// blocksUsedThisTick never exceeds cap, and volume is saturated to Long.MAX_VALUE, so
+		// compare via subtraction to avoid overflow in blocksUsedThisTick + volume.
+		if (volume > cap - blocksUsedThisTick) return false;
+		blocksUsedThisTick += volume;
+		return true;
 	}
 
 	// create a cuboid of lots of blocks

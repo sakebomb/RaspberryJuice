@@ -48,6 +48,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private int maxBlocks;
 
+	private long maxBlocksPerTick;
+
 	private boolean welcomeMessage;
 
 	private boolean opCommandsEnabled;
@@ -62,6 +64,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public int getMaxBlocks() {
 		return maxBlocks;
+	}
+	public long getMaxBlocksPerTick() {
+		return maxBlocksPerTick;
 	}
 	public boolean isOpCommandsEnabled() {
 		return opCommandsEnabled;
@@ -87,6 +92,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//maximum blocks a single getBlocks/setBlocks may span (0 = unlimited)
 		maxBlocks = this.getConfig().getInt("max-blocks", 1000000);
+
+		//cumulative blocks all cuboid ops (getBlocks/setBlocks/clone) may touch in one server
+		//tick - bounds a flood of near-cap requests that would otherwise stack up (0 = unlimited)
+		maxBlocksPerTick = this.getConfig().getLong("max-blocks-per-tick", 10000000L);
 
 		//whether to broadcast a "Welcome <player>" message to everyone on join
 		welcomeMessage = this.getConfig().getBoolean("welcome-message", true);
