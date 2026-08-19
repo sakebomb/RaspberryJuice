@@ -50,6 +50,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private boolean welcomeMessage;
 
+	private boolean opCommandsEnabled;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -58,6 +60,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public int getMaxBlocks() {
 		return maxBlocks;
+	}
+	public boolean isOpCommandsEnabled() {
+		return opCommandsEnabled;
 	}
 
 	public void onEnable() {
@@ -80,6 +85,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//whether to broadcast a "Welcome <player>" message to everyone on join
 		welcomeMessage = this.getConfig().getBoolean("welcome-message", true);
+
+		//whether player.setGameMode / player.give are allowed (disable on shared servers)
+		opCommandsEnabled = this.getConfig().getBoolean("enable-op-commands", true);
 
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();

@@ -21,6 +21,11 @@ hitclick: RIGHT
 # Set to false to keep this scripting bridge silent on join.
 welcome-message: true
 
+# Whether the "op-like" commands that grant power to the current player are allowed:
+# player.setGameMode and player.give. Handy for a STEM sandbox (default true); set false on a
+# shared/survival server so a socket client can't self-grant creative mode or items.
+enable-op-commands: true
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.
