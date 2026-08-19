@@ -186,6 +186,68 @@ class RemoteSessionPlayerAuthTest {
 		assertTrue(authorized.isForCurrentPlayer(alice), "token holder observes Alice");
 	}
 
+	// ---- brute-force lockout on setPlayer token attempts (#51) --------------
+	// Mirrors the auth(<token>) handshake's 3-strikes-and-close. Records close() instead of
+	// running the real one (which would join() the null in/out threads of a TestSession).
+
+	private static final class LockoutSession extends RemoteSession {
+		int closeCount = 0;
+		LockoutSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException { super(plugin, socket); }
+		@Override protected void startThreads() { }
+		@Override public void close() { closeCount++; }
+	}
+
+	private LockoutSession lockoutSession() throws IOException {
+		LockoutSession s = new LockoutSession(plugin, new FakeSocket());
+		s.setOrigin(new Location(world, 0, 0, 0));
+		return s;
+	}
+
+	@Test
+	void repeatedWrongToken_closesConnectionAfterThreeFailures() throws Exception {
+		setPlayerTokens(Map.of("Alice", "s3cret"));
+		LockoutSession s = lockoutSession();
+		server.addPlayer("Alice");
+		send(s, "setPlayer(Alice,wrong1)");
+		send(s, "setPlayer(Alice,wrong2)");
+		assertEquals(0, s.closeCount, "two failures must not trip the lockout");
+		send(s, "setPlayer(Alice,wrong3)");
+		assertEquals(1, s.closeCount, "the third consecutive failed authorization must close the connection");
+	}
+
+	@Test
+	void successfulBind_resetsFailureCounter() throws Exception {
+		setPlayerTokens(Map.of("Alice", "s3cret"));
+		LockoutSession s = lockoutSession();
+		server.addPlayer("Alice");
+		send(s, "setPlayer(Alice,wrong1)");
+		send(s, "setPlayer(Alice,wrong2)");
+		assertEquals("1", send(s, "setPlayer(Alice,s3cret)"), "correct token must still bind");
+		// counter reset by the success -> two more wrong attempts stay under the threshold
+		send(s, "setPlayer(Alice,wrong3)");
+		send(s, "setPlayer(Alice,wrong4)");
+		assertEquals(0, s.closeCount, "a successful bind must reset the failure counter");
+	}
+
+	@Test
+	void offlinePlayer_doesNotCountTowardLockout() throws Exception {
+		setPlayerTokens(Map.of("Alice", "s3cret"));
+		LockoutSession s = lockoutSession();
+		server.addPlayer("Alice");
+		// an offline/unknown player is a normal "not online" Fail, not an authorization failure
+		for (int i = 0; i < 5; i++) send(s, "setPlayer(Ghost,s3cret)");
+		assertEquals(0, s.closeCount, "offline-player failures must not trip the brute-force lockout");
+	}
+
+	@Test
+	void noPlayerTokens_neverLocksOut() throws Exception {
+		// authz off: setPlayer binds/fails by name with no lockout in play
+		LockoutSession s = lockoutSession();
+		server.addPlayer("Alice");
+		for (int i = 0; i < 5; i++) send(s, "setPlayer(Ghost)");
+		assertEquals(0, s.closeCount, "with no player-tokens configured there is no lockout");
+	}
+
 	private static final class FakeSocket extends Socket {
 		private final InputStream in = new ByteArrayInputStream(new byte[0]);
 		private final OutputStream out = new ByteArrayOutputStream();
