@@ -12,7 +12,12 @@ class RequestError(RuntimeError):
 def _encode(arg: object) -> str:
     if isinstance(arg, bool):  # bool is a subclass of int - check it first
         return "1" if arg else "0"
-    return str(arg)
+    s = str(arg)
+    # a newline in an argument would split the command into two wire lines and desync the
+    # protocol (the server rejects the truncated first line with a stray "Fail"). Fail fast.
+    if "\n" in s or "\r" in s:
+        raise ValueError("command arguments may not contain newlines")
+    return s
 
 
 def _join(args: tuple[object, ...]) -> str:
@@ -41,8 +46,16 @@ class Connection:
         self._sock.sendall((line + "\n").encode("utf-8"))
 
     def receive(self) -> str:
-        """Read one response line, raising :class:`RequestError` on ``Fail``."""
-        line = self._reader.readline().rstrip("\n")
+        """Read one response line, raising :class:`RequestError` on ``Fail``.
+
+        An empty *event* response is a real ``"\\n"`` line; a dropped connection returns
+        ``""`` (no newline) from readline - distinguish them so a closed socket is a clear
+        :class:`ConnectionError`, not a confusing ``int('')`` downstream.
+        """
+        raw = self._reader.readline()
+        if raw == "":
+            raise ConnectionError(f"connection closed while waiting for a response to {self._last.strip()!r}")
+        line = raw.rstrip("\n")
         if line == self.FAIL:
             raise RequestError(f"{self._last.strip()} failed")
         return line

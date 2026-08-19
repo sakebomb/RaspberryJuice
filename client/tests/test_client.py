@@ -1,5 +1,8 @@
 """Tests for the raspberryjuice client, run against the FakeServer fixture."""
 
+import socket
+import threading
+
 import pytest
 
 from raspberryjuice import Minecraft, Vec3, blocks
@@ -124,6 +127,33 @@ def test_events_polling(server_and_mc):
 def test_events_empty(server_and_mc):
     srv, mc = server_and_mc({"events.block.hits": ""})
     assert mc.poll_block_hits() == []
+
+
+def test_newline_in_arg_is_rejected(server_and_mc):
+    srv, mc = server_and_mc()
+    with pytest.raises(ValueError):
+        mc.post_to_chat("line one\nline two")  # would split into two wire lines and desync
+
+
+def test_dropped_connection_raises_connectionerror():
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve_then_drop():
+        conn, _ = srv.accept()
+        conn.recv(1024)   # read the query, then close without responding
+        conn.close()
+
+    threading.Thread(target=serve_then_drop, daemon=True).start()
+    mc = Minecraft.connect("127.0.0.1", port)
+    try:
+        with pytest.raises(ConnectionError):
+            mc.get_block(0, 0, 0)
+    finally:
+        srv.close()
 
 
 def test_reactive_events(server_and_mc):
