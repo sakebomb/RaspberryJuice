@@ -107,6 +107,22 @@ class Minecraft:
     def poll_projectile_hits(self) -> list[str]:
         return _split_events(self.conn.call("events.projectile.hits"))
 
+    def poll_player_moves(self) -> list[str]:
+        """Positions the player moved into since the last poll: ``x,y,z,name`` each."""
+        return _split_events(self.conn.call("events.player.moves"))
+
+    def poll_block_breaks(self) -> list[str]:
+        """Blocks players broke: ``x,y,z,block_id,name`` each."""
+        return _split_events(self.conn.call("events.block.breaks"))
+
+    def poll_block_places(self) -> list[str]:
+        """Blocks players placed: ``x,y,z,block_id,name`` each."""
+        return _split_events(self.conn.call("events.block.places"))
+
+    def poll_player_deaths(self) -> list[str]:
+        """Player deaths: ``x,y,z,name`` each."""
+        return _split_events(self.conn.call("events.player.deaths"))
+
     def clear_events(self) -> None:
         self.conn.send("events.clear")
 

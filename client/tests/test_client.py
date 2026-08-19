@@ -124,3 +124,14 @@ def test_events_polling(server_and_mc):
 def test_events_empty(server_and_mc):
     srv, mc = server_and_mc({"events.block.hits": ""})
     assert mc.poll_block_hits() == []
+
+
+def test_reactive_events(server_and_mc):
+    srv, mc = server_and_mc({
+        "events.player.moves": "3,64,-2,Alice|4,64,-2,Alice",
+        "events.block.breaks": "1,5,1,1,Bob",
+        "events.player.deaths": "7,63,8,Dan",
+    })
+    assert mc.poll_player_moves() == ["3,64,-2,Alice", "4,64,-2,Alice"]
+    assert mc.poll_block_breaks() == ["1,5,1,1,Bob"]
+    assert mc.poll_player_deaths() == ["7,63,8,Dan"]

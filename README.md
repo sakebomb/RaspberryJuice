@@ -89,6 +89,15 @@ Drive spawned entities (use `world.spawnEntity` to create one and get its id):
  - player.setGameMode(0|1|2|3) - survival / creative / adventure / spectator
  - player.give(blockId[,count]) - give the current player blocks (default 1)
 
+### Reactive events
+
+Poll these (like the other `events.*` calls) to react to what players do - "when X, do Y":
+
+ - events.player.moves - positions the player moved into since the last poll (`x,y,z,name`)
+ - events.block.breaks - blocks players broke (`x,y,z,blockId,name`)
+ - events.block.places - blocks players placed (`x,y,z,blockId,name`)
+ - events.player.deaths - player deaths (`x,y,z,name`)
+
 ### Agent commands (turtle)
 
 A per-session, code-driven **agent** (a "turtle"): drive it with relative commands to move,

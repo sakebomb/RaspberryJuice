@@ -15,7 +15,11 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -160,9 +164,44 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	
 	@EventHandler(ignoreCancelled=true)
 	public void onProjectileHit(ProjectileHitEvent event) {
-		
+
 		for (RemoteSession session: sessions) {
 			session.queueProjectileHitEvent(event);
+		}
+	}
+
+	@EventHandler(ignoreCancelled=true)
+	public void onPlayerMove(PlayerMoveEvent event) {
+		// only report when the player crosses into a new block (PlayerMoveEvent fires very often)
+		if (event.getTo() == null) return;
+		if (event.getFrom().getBlockX() == event.getTo().getBlockX()
+				&& event.getFrom().getBlockY() == event.getTo().getBlockY()
+				&& event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
+			return;
+		}
+		for (RemoteSession session: sessions) {
+			session.queuePlayerMove(event.getPlayer(), event.getTo());
+		}
+	}
+
+	@EventHandler(ignoreCancelled=true)
+	public void onBlockBreak(BlockBreakEvent event) {
+		for (RemoteSession session: sessions) {
+			session.queueBlockBreak(event.getPlayer(), event.getBlock());
+		}
+	}
+
+	@EventHandler(ignoreCancelled=true)
+	public void onBlockPlace(BlockPlaceEvent event) {
+		for (RemoteSession session: sessions) {
+			session.queueBlockPlace(event.getPlayer(), event.getBlock());
+		}
+	}
+
+	@EventHandler
+	public void onPlayerDeath(PlayerDeathEvent event) {
+		for (RemoteSession session: sessions) {
+			session.queuePlayerDeath(event.getEntity());
 		}
 	}
 
