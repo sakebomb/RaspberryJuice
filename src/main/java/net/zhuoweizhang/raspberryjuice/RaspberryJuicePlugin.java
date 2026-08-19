@@ -58,6 +58,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private String authToken;
 
+	// Per-player bind secrets from config (player-tokens: name -> token). Empty = per-player
+	// authorization disabled (setPlayer binds by name, as before). Non-empty = setPlayer is
+	// fail-closed: only a listed player, with its matching token, may be bound (#47).
+	private final java.util.Map<String, String> playerTokens = new java.util.HashMap<>();
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -78,6 +83,33 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public String getAuthToken() {
 		return authToken == null ? "" : authToken;
+	}
+
+	// True when per-player authorization is in effect (the player-tokens map is non-empty). When
+	// false, setPlayer binds by name with no token (single-player / trusted deploys, unchanged).
+	public boolean isPlayerTokensConfigured() {
+		return !playerTokens.isEmpty();
+	}
+
+	// The configured bind secret for a player name, or null if that player is not listed. A null
+	// return under isPlayerTokensConfigured() means "unlisted" -> not bindable (fail closed).
+	public String getPlayerToken(String name) {
+		return playerTokens.get(name);
+	}
+
+	// Parse the player-tokens config section (name -> token) into a map. Null section (key absent
+	// or empty "{}") or blank-valued entries yield no authorization for that name - so an empty or
+	// mistyped section leaves per-player authz OFF rather than silently locking everyone out. #47
+	static java.util.Map<String, String> readPlayerTokens(org.bukkit.configuration.ConfigurationSection section) {
+		java.util.Map<String, String> tokens = new java.util.HashMap<>();
+		if (section == null) return tokens;
+		for (String name : section.getKeys(false)) {
+			String token = section.getString(name);
+			if (token != null && !token.isEmpty()) {
+				tokens.put(name, token);
+			}
+		}
+		return tokens;
 	}
 
 	public void onEnable() {
@@ -114,6 +146,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		allowGlobalEvents = this.getConfig().getBoolean("allow-global-events", false);
 
 		authToken = this.getConfig().getString("auth-token", "");
+
+		//per-player bind secrets (player-tokens: name -> token). Empty = per-player authz off.
+		//When set, setPlayer is fail-closed: only a listed player with its matching token binds (#47).
+		playerTokens.clear();
+		playerTokens.putAll(readPlayerTokens(this.getConfig().getConfigurationSection("player-tokens")));
 
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();
