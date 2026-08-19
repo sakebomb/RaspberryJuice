@@ -71,6 +71,17 @@ class Minecraft:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
+    # ---- session identity ----------------------------------------------
+    def set_player(self, name: str) -> None:
+        """Bind this connection to a named online player.
+
+        Scopes ``player.*`` commands and the reactive event streams
+        (:meth:`poll_player_moves` etc.) to that player only. On a multi-player
+        server an *unbound* connection receives no other player's events, so bind
+        here to receive your own. Raises :class:`RequestError` if ``name`` isn't online.
+        """
+        self.conn.call("setPlayer", name)  # -> "1", or RequestError if not online
+
     # ---- blocks ---------------------------------------------------------
     def set_block(self, x: int, y: int, z: int, block_id: int, data: int = 0) -> None:
         self.conn.send("world.setBlock", x, y, z, block_id, data)
