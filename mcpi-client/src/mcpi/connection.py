@@ -2,12 +2,16 @@
 
 The protocol is line based: ``name(a,b,c)\\n`` requests; query commands reply with a single
 ``\\n``-terminated line, and a ``Fail`` reply becomes a :class:`RequestError`. Fire-and-forget
-commands (setBlock, postToChat, …) get no reply.
+commands (setBlock, postToChat, …) get no reply, and this client only ever emits commands the
+server implements - so in normal use every query reads exactly its own reply and there is no
+stray data to worry about.
 
-One subtlety this preserves from classic mcpi: a command the server does not implement
-(e.g. ``saveCheckpoint`` / ``camera.*``) is answered with ``Fail`` even though it was sent
-fire-and-forget, leaving a stray line in the socket. :meth:`drain` discards any such pending
-bytes before the next command so it can't be mis-read as the next query's response.
+:meth:`drain` is a best-effort safety net for the one way a stray could appear: sending a
+command the server does not implement (which it answers ``Fail`` even for a fire-and-forget
+send). It discards bytes that have *already arrived*; it cannot clear a reply still in flight,
+since the server answers a tick later. Because this client avoids unimplemented commands, that
+case does not arise here - drain just keeps a directly-driven ``conn`` from desyncing on an
+already-buffered stray.
 """
 
 from __future__ import annotations
@@ -32,7 +36,8 @@ class Connection:
         self.lastSent = ""
 
     def drain(self) -> None:
-        """Discard any already-arrived bytes (e.g. a stray ``Fail`` from an unsupported send)."""
+        """Discard bytes that have already arrived (a best-effort clear of a buffered stray reply;
+        it cannot catch a reply still in flight - see the module docstring)."""
         self._buffer = b""
         while True:
             readable, _, _ = select.select([self.socket], [], [], 0.0)
