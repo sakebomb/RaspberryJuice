@@ -66,7 +66,7 @@ public class RemoteSession {
 
 	private ConcurrentLinkedQueue<String> inQueue = new ConcurrentLinkedQueue<String>();
 
-	private LinkedBlockingQueue<String> outQueue = new LinkedBlockingQueue<String>();
+	private LinkedBlockingQueue<String> outQueue = new LinkedBlockingQueue<String>(MAX_OUT_QUEUE);
 
 	public volatile boolean running = true;
 
@@ -134,6 +134,18 @@ public class RemoteSession {
 	// mirroring the auth handshake's lockout. Only meaningful when per-player authz is on. #51
 	private int setPlayerAuthFailures = 0;
 	private static final int MAX_SETPLAYER_AUTH_FAILURES = 3;
+
+	// Per-connection socket I/O safety caps: bound the memory one client can force us to hold so a
+	// single connection can't OOM the server via a giant unterminated line, an input flood faster
+	// than the tick loop can drain (maxCommandsPerTick/tick), or a pile of unread responses. These
+	// are DoS guards distinct from max-blocks/max-blocks-per-tick (which bound cuboid *volume*).
+	static final int MAX_LINE_LENGTH = 16384;  // longest accepted command line, in chars (pkg-private: tests reference it)
+	static final int MAX_IN_QUEUE = 100000;    // max unprocessed inbound commands backlogged
+	static final int MAX_OUT_QUEUE = 100000;   // max queued outbound responses
+
+	// O(1) running count of inQueue (ConcurrentLinkedQueue.size() is O(n)); producer=InputThread,
+	// consumer=tick(), so an AtomicInteger keeps the cap check off the linear-scan path.
+	private final java.util.concurrent.atomic.AtomicInteger inQueueSize = new java.util.concurrent.atomic.AtomicInteger();
 
 	/** One protocol command's parsing + execution. Bodies throw only unchecked exceptions, which
 	 *  handleCommand's outer catch turns into a "Fail" response - same as the former handle* chain. */
@@ -254,11 +266,12 @@ public class RemoteSession {
 		int processedCount = 0;
 		String message;
 		while ((message = inQueue.poll()) != null) {
+			inQueueSize.decrementAndGet();
 			handleLine(message);
 			processedCount++;
 			if (processedCount >= maxCommandsPerTick) {
 				plugin.getLogger().warning("Over " + maxCommandsPerTick +
-					" commands were queued - deferring " + inQueue.size() + " to next tick");
+					" commands were queued - deferring " + inQueueSize.get() + " to next tick");
 				break;
 			}
 		}
@@ -266,6 +279,40 @@ public class RemoteSession {
 		if (!running && inQueue.size() <= 0) {
 			pendingRemoval = true;
 		}
+	}
+
+	/** Enqueues an inbound command, bounding the backlog so a client flooding faster than the tick
+	 *  loop drains it (maxCommandsPerTick/tick) can't grow server memory without limit. Over the cap
+	 *  the connection is stopped. Returns false (and stops the session) on overflow. Visible for testing. */
+	boolean enqueueInput(String line) {
+		if (inQueueSize.get() >= MAX_IN_QUEUE) {
+			plugin.getLogger().warning("Input backlog over " + MAX_IN_QUEUE + " from "
+				+ socket.getRemoteSocketAddress() + " - flooding faster than we can process; closing connection.");
+			running = false;
+			return false;
+		}
+		inQueue.add(line);
+		inQueueSize.incrementAndGet();
+		return true;
+	}
+
+	/** Reads one line, capping its length so a client can't exhaust memory with an unterminated line
+	 *  (BufferedReader.readLine buffers without bound). Tolerates CRLF. Returns null on EOF or when the
+	 *  cap is exceeded - either way the caller stops reading. Visible for testing. */
+	String readBoundedLine(BufferedReader reader) throws IOException {
+		StringBuilder sb = new StringBuilder();
+		int c;
+		while ((c = reader.read()) != -1) {
+			if (c == '\n') return sb.toString();
+			if (c == '\r') continue; // tolerate CRLF line endings
+			sb.append((char) c);
+			if (sb.length() > MAX_LINE_LENGTH) {
+				plugin.getLogger().warning("Command line over " + MAX_LINE_LENGTH + " chars from "
+					+ socket.getRemoteSocketAddress() + " - closing connection.");
+				return null;
+			}
+		}
+		return sb.length() > 0 ? sb.toString() : null; // trailing partial before EOF, else EOF
 	}
 
 	protected void handleLine(String line) {
@@ -542,12 +589,12 @@ public class RemoteSession {
 	}
 
 	void cmdWorldRemoveEntity(String[] args, World world, Server server) {
+		int id = Integer.parseInt(args[0]);
 		int result = 0;
 		for (Entity e : world.getEntities()) {
-			if (e.getEntityId() == Integer.parseInt(args[0]))
+			if (e.getEntityId() == id)
 			{
-				e.remove();
-				result = 1;
+				if (removableEntity(e)) { e.remove(); result = 1; } // only if this session owns it
 				break;
 			}
 		}
@@ -558,7 +605,7 @@ public class RemoteSession {
 		int entityType = Integer.parseInt(args[0]);
 		int removedEntitiesCount = 0;
 		for (Entity e : world.getEntities()) {
-			if (entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
+			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && removableEntity(e))
 			{
 				e.remove();
 				removedEntitiesCount++;
@@ -1118,6 +1165,14 @@ public class RemoteSession {
 		return (e instanceof Player) ? null : e;
 	}
 
+	/** True if this session may REMOVE the given entity: it owns it (per-session ownership) and it
+	 *  is not a player. Removal is a strictly stronger mutation than kill/move, so it must pass the
+	 *  same gate as controllableEntity - otherwise a client could delete other sessions' entities
+	 *  (or, but for an implicit server-fork exception, players) world-wide via a bulk remove. */
+	private boolean removableEntity(Entity e) {
+		return ownedEntities.contains(e.getEntityId()) && !(e instanceof Player);
+	}
+
 	// ==== command handlers: programmable agent / turtle ====
 	// a per-session marker driven by relative commands. Movement/query before agent.spawn() answers
 	// "Fail" (via requireAgent); agent.* is an additive namespace so existing mcpi clients are unaffected.
@@ -1443,7 +1498,9 @@ public class RemoteSession {
 		int removedEntitiesCount = 0;
 		Entity playerEntityId = plugin.getEntity(entityId);
 		for (Entity e : world.getEntities()) {
-			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && RelativeGeometry.getDistance(playerEntityId, e) <= distance)
+			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
+				&& RelativeGeometry.getDistance(playerEntityId, e) <= distance
+				&& removableEntity(e)) // only entities this session owns, never players
 			{
 				e.remove();
 				removedEntitiesCount++;
@@ -1570,7 +1627,14 @@ public class RemoteSession {
 
 	public void send(String a) {
 		if (pendingRemoval) return;
-		outQueue.add(a);
+		// bounded queue: a client that stops reading its socket can't make us buffer responses without
+		// limit. If it's full the client isn't consuming - stop the session rather than grow memory.
+		if (!outQueue.offer(a)) {
+			plugin.getLogger().warning("Output queue full (" + MAX_OUT_QUEUE + ") for "
+				+ socket.getRemoteSocketAddress() + " - client not reading responses; closing connection.");
+			running = false;
+			pendingRemoval = true;
+		}
 	}
 
 	/** Visible for testing: drains responses queued for the socket without starting the I/O threads. */
@@ -1627,11 +1691,11 @@ public class RemoteSession {
 			plugin.getLogger().info("Starting input thread");
 			while (running) {
 				try {
-					String newLine = in.readLine();
+					String newLine = readBoundedLine(in);
 					if (newLine == null) {
-						running = false;
+						running = false; // EOF or an over-length line - stop reading this connection
 					} else {
-						inQueue.add(newLine);
+						enqueueInput(newLine);
 					}
 				} catch (Exception e) {
 					// if its running raise an error
