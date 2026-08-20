@@ -17,6 +17,10 @@ a teaching/scripting bridge — but it means:
     flood of near-cap requests the single-request cap alone can't stop).
   - **Bounded socket I/O** — a per-connection line-length cap and bounded in/out queues stop one
     client from exhausting server memory with a giant line, an input flood, or unread responses.
+  - **Connection admission control** — `max-sessions` caps concurrent sessions and
+    `max-connections-per-minute` rate-limits new connections per IP, so a connection flood can't
+    exhaust threads/fds. This also backs the auth/`setPlayer` lockouts: without it an attacker
+    could reconnect after each 3-strike close to keep brute-forcing a token with no cooldown.
   - **Per-session entity ownership** — only the connection that spawned an entity may mutate it
     (move, teleport, set health/name/AI) **or remove it**; one client can't touch another's mobs,
     and `world.removeEntities(-1)` deletes only your own. Id-targeted `entity.*` mutators also

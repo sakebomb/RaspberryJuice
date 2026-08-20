@@ -37,6 +37,10 @@ The "programmable education platform" work — turning RaspberryJuice into a STE
 - **`setPlayer` brute-force lockout** — consecutive failed authorized binds close the connection at
   the same threshold as the `auth` handshake, so a weak per-player token can't be brute-forced over
   an open socket. A successful bind resets the counter. (#51)
+- **Connection admission control** — a `max-sessions` concurrent cap and a per-IP
+  `max-connections-per-minute` rate limit, applied before a session's threads are created. Bounds a
+  connection-flood DoS and closes the reconnect loophole that let an attacker sidestep the auth /
+  setPlayer lockouts by opening a fresh connection for each new batch of guesses. (#56)
 - **Reactive events are player-scoped by default** — `events.player.moves` / `block.breaks` /
   `block.places` / `player.deaths` previously broadcast every player's activity to every socket
   (a live tracking feed). Each session now sees only its own player's events. New
