@@ -177,12 +177,16 @@ Modify config.yml:
 
 ## Libraries
 
-The recommended client is the typed Python package in [`client/`](client/) (see [Quickstart](#quickstart)).
+Two Python clients ship with this repo:
 
-For the classic mcpi Java/Python libraries, a modded version (extending the ones Mojang shipped
-with Minecraft Pi) is bundled in this repo at
-[`src/main/resources/mcpi`](src/main/resources/mcpi). You only need the modded libraries for the
-extra features; the original Pi-edition libraries still work for the core commands.
+- **[`client/`](client/)** — a new, typed `raspberryjuice` package with a clean modern API (see
+  [Quickstart](#quickstart)). Best for writing new lessons.
+- **[`mcpi-client/`](mcpi-client/)** — a modern, drop-in **`mcpi`** package so existing
+  Minecraft-Pi curriculum (*Adventures in Minecraft*, Raspberry Pi tutorials) runs unchanged:
+  `from mcpi.minecraft import Minecraft`. Best for running material that's already written.
+
+For reference, the original classic mcpi Java/Python libraries (as modded for RaspberryJuice) are
+also bundled at [`src/main/resources/mcpi`](src/main/resources/mcpi).
 
 ## Build
 

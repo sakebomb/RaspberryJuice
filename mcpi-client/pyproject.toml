@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+# Distribution name is namespaced to avoid clashing with the legacy `mcpi` on PyPI; the IMPORT
+# name is still `mcpi` (see the wheel packages below) so `from mcpi.minecraft import Minecraft`
+# works and existing curriculum runs unchanged.
+name = "raspberryjuice-mcpi"
+version = "0.1.0"
+description = "A modern, typed, drop-in mcpi library so classic Minecraft-Pi curriculum runs against RaspberryJuice on current Minecraft."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+keywords = ["minecraft", "mcpi", "raspberryjuice", "education", "stem", "raspberry-pi"]
+authors = [{ name = "RaspberryJuice contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Education",
+    "Topic :: Games/Entertainment",
+    "License :: OSI Approved :: Apache Software License",
+]
+
+[project.urls]
+Homepage = "https://github.com/sakebomb/RaspberryJuice"
+Issues = "https://github.com/sakebomb/RaspberryJuice/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcpi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
