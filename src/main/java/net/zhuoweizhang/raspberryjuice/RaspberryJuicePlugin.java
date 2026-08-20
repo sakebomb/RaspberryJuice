@@ -58,6 +58,13 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private String authToken;
 
+	// Max concurrent socket sessions (0 = unlimited). Bounds thread/fd use from a connection flood.
+	private int maxSessions;
+
+	// Per-IP new-connection rate limiter (#56): blunts a connection flood and stops an attacker from
+	// side-stepping the 3-strikes auth/setPlayer lockouts by just reconnecting for more guesses.
+	private ConnectionRateLimiter connectionRateLimiter;
+
 	// Per-player bind secrets from config (player-tokens: name -> token). Empty = per-player
 	// authorization disabled (setPlayer binds by name, as before). Non-empty = setPlayer is
 	// fail-closed: only a listed player, with its matching token, may be bound (#47).
@@ -146,6 +153,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		allowGlobalEvents = this.getConfig().getBoolean("allow-global-events", false);
 
 		authToken = this.getConfig().getString("auth-token", "");
+
+		//max concurrent socket sessions (0 = unlimited), and max new connections per remote IP per
+		//minute (0 = unlimited) - bound resource use from a flood and slow token brute-forcing (#56)
+		maxSessions = this.getConfig().getInt("max-sessions", 100);
+		int maxConnectionsPerMinute = this.getConfig().getInt("max-connections-per-minute", 60);
+		connectionRateLimiter = new ConnectionRateLimiter(maxConnectionsPerMinute, 60_000L);
 
 		//per-player bind secrets (player-tokens: name -> token). Empty = per-player authz off.
 		//When set, setPlayer is fail-closed: only a listed player with its matching token binds (#47).
@@ -282,6 +295,37 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 				session.queuePlayerDeath(event.getEntity());
 			}
 		}
+	}
+
+	/** Admission control run on the raw socket BEFORE a RemoteSession (and its two threads) is
+	 *  created: refuse the connection if we're at the concurrent-session cap or the remote IP has
+	 *  exceeded its per-minute connection rate (#56). Returns true to accept. */
+	public boolean admit(java.net.Socket socket) {
+		if (!withinSessionCap(sessions.size())) {
+			getLogger().warning("Refusing " + socket.getRemoteSocketAddress()
+				+ " - at max-sessions (" + maxSessions + ").");
+			return false;
+		}
+		String ip = ipOf(socket.getRemoteSocketAddress());
+		if (!connectionRateLimiter.allow(ip, System.currentTimeMillis())) {
+			getLogger().warning("Refusing " + socket.getRemoteSocketAddress()
+				+ " - connection rate limit exceeded for that IP.");
+			return false;
+		}
+		return true;
+	}
+
+	/** True if a new session fits under the concurrent-session cap (0 = unlimited). Pure, for tests. */
+	boolean withinSessionCap(int currentSessions) {
+		return maxSessions <= 0 || currentSessions < maxSessions;
+	}
+
+	/** The IP portion of a socket address for rate-limiting (falls back to the full string). */
+	private static String ipOf(java.net.SocketAddress addr) {
+		if (addr instanceof java.net.InetSocketAddress isa && isa.getAddress() != null) {
+			return isa.getAddress().getHostAddress();
+		}
+		return String.valueOf(addr);
 	}
 
 	/** called when a new session is established. */

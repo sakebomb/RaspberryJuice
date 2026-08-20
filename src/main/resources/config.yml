@@ -71,3 +71,14 @@ max-blocks: 1000000
 # of GB in one tick. Requests are rejected once the tick's running total would exceed this.
 # 0 disables the per-tick budget (not recommended - leaves the server open to that flood).
 max-blocks-per-tick: 10000000
+
+# Maximum number of concurrent socket sessions. Each connection spends two server threads, so an
+# unbounded connection flood is a resource-exhaustion DoS. New connections beyond this are refused
+# and closed immediately. Raise it for a large classroom; 0 disables the cap.
+max-sessions: 100
+
+# Maximum NEW connections one remote IP may open per minute. Bounds connection-flood churn and
+# slows token brute-forcing: the auth / setPlayer lockouts close a connection after 3 bad guesses,
+# but without this an attacker just reconnects for another 3 with no cooldown. Excess connections
+# from an IP are refused and closed. 0 disables per-IP rate limiting.
+max-connections-per-minute: 60

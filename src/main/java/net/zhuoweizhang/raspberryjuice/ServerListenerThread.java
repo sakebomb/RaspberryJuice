@@ -26,6 +26,12 @@ public class ServerListenerThread implements Runnable {
 			try {
 				Socket newConnection = serverSocket.accept();
 				if (!running) return;
+				// admission control BEFORE building a RemoteSession (which starts two threads):
+				// drop the socket if we're at the session cap or the IP is connecting too fast (#56)
+				if (!plugin.admit(newConnection)) {
+					try { newConnection.close(); } catch (IOException ignored) { }
+					continue;
+				}
 				plugin.handleConnection(new RemoteSession(plugin, newConnection));
 			} catch (Exception e) {
 				// if the server thread is still running raise an error
