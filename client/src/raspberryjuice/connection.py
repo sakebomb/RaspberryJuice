@@ -39,10 +39,17 @@ class Connection:
         self._reader = self._sock.makefile("r", encoding="utf-8", newline="\n")
         self._last = ""
 
-    def send(self, func: str, *args: object) -> None:
-        """Send a fire-and-forget command (no response expected)."""
+    def send(self, func: str, *args: object, sensitive: bool = False) -> None:
+        """Send a fire-and-forget command (no response expected).
+
+        Pass ``sensitive=True`` for commands whose arguments are secrets (auth/setPlayer
+        tokens) so they are NOT retained for error messages - only the real wire line, which
+        the socket needs, carries them. This keeps a token out of any RequestError /
+        ConnectionError text that a traceback, log, or classroom projector might expose.
+        """
         line = f"{func}({_join(args)})"
-        self._last = line
+        # remembered only to describe a failed command; never keep secret args here
+        self._last = f"{func}(***)" if sensitive else line
         self._sock.sendall((line + "\n").encode("utf-8"))
 
     def receive(self) -> str:
@@ -60,9 +67,9 @@ class Connection:
             raise RequestError(f"{self._last.strip()} failed")
         return line
 
-    def call(self, func: str, *args: object) -> str:
+    def call(self, func: str, *args: object, sensitive: bool = False) -> str:
         """Send a command and return its response line."""
-        self.send(func, *args)
+        self.send(func, *args, sensitive=sensitive)
         return self.receive()
 
     def close(self) -> None:

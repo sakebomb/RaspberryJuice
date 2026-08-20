@@ -56,7 +56,11 @@ class Minecraft:
         (raises :class:`RequestError` if the token is rejected)."""
         conn = Connection(host, port)
         if token:
-            conn.call("auth", token)  # -> "1" on success, RequestError on failure
+            try:
+                conn.call("auth", token, sensitive=True)  # -> "1"; RequestError/ConnectionError on failure
+            except BaseException:
+                conn.close()  # don't leak the just-opened socket if the handshake fails
+                raise
         return cls(conn)
 
     # familiar mcpi-style alias
@@ -72,15 +76,23 @@ class Minecraft:
         self.close()
 
     # ---- session identity ----------------------------------------------
-    def set_player(self, name: str) -> None:
+    def set_player(self, name: str, token: str | None = None) -> None:
         """Bind this connection to a named online player.
 
         Scopes ``player.*`` commands and the reactive event streams
         (:meth:`poll_player_moves` etc.) to that player only. On a multi-player
         server an *unbound* connection receives no other player's events, so bind
-        here to receive your own. Raises :class:`RequestError` if ``name`` isn't online.
+        here to receive your own.
+
+        If the server configures per-player ``player-tokens`` the bind is fail-closed:
+        pass that player's ``token`` to authorize it. Raises :class:`RequestError` if
+        ``name`` isn't online, or (with ``player-tokens`` set) if the token is wrong or
+        the player isn't listed.
         """
-        self.conn.call("setPlayer", name)  # -> "1", or RequestError if not online
+        if token is None:
+            self.conn.call("setPlayer", name)  # -> "1", or RequestError if not online
+        else:
+            self.conn.call("setPlayer", name, token, sensitive=True)  # keep the token out of errors
 
     # ---- blocks ---------------------------------------------------------
     def set_block(self, x: int, y: int, z: int, block_id: int, data: int = 0) -> None:
@@ -239,6 +251,10 @@ class Agent:
         self.conn = connection
 
     def spawn(self, x: int | None = None, y: int | None = None, z: int | None = None) -> None:
+        """Spawn the agent at ``x, y, z`` (all three, or none for the player's location)."""
+        given = [c is not None for c in (x, y, z)]
+        if any(given) and not all(given):
+            raise ValueError("agent.spawn needs all of x, y, z, or none of them")
         if x is None:
             self.conn.send("agent.spawn")
         else:
