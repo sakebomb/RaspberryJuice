@@ -157,12 +157,13 @@ def test_fail_reply_raises_request_error(server_and_mc):
         mc.getBlock(0, 0, 0)
 
 
-def test_drain_discards_a_stale_reply(server_and_mc):
-    # simulate the server's "Fail" to an unsupported fire-and-forget command sitting in the
-    # socket: a stray line arrives before the next query. drain() must discard it so the query
-    # reads its OWN reply, not the stray.
+def test_drain_discards_an_already_buffered_stale_reply(server_and_mc):
+    # drain() clears a stray reply that has ALREADY arrived (here a "Fail" greeting standing in
+    # for a stray left by an unimplemented command): the next query must read its OWN reply.
+    # (drain is best-effort and can't catch an in-flight reply - see connection.py; this client
+    # avoids that case by only sending implemented commands.)
     srv, mc = server_and_mc({"world.getBlock": "99"}, greeting="Fail")
-    time.sleep(0.05)  # ensure the stray "Fail" has arrived and is buffered
+    time.sleep(0.05)  # ensure the stray "Fail" has arrived and is buffered before the query
     assert mc.getBlock(0, 0, 0) == 99  # not the stray "Fail"
 
 
