@@ -180,6 +180,54 @@ def test_set_player_offline_raises(server_and_mc):
         mc.set_player("Ghost")
 
 
+def test_auth_failure_does_not_leak_token(server_and_mc):
+    # a rejected token must never appear in the raised error (traceback/log/projector safe)
+    with pytest.raises(RequestError) as exc:
+        server_and_mc({"auth": "Fail"}, token="SUPER-SECRET-XYZ")
+    assert "SUPER-SECRET-XYZ" not in str(exc.value)
+    assert "***" in str(exc.value), "the sensitive arg should be masked, not just absent"
+
+
+def test_auth_failure_closes_socket(server_and_mc):
+    # M4: a failed handshake must not leak the just-opened socket
+    from unittest import mock
+    from raspberryjuice.connection import Connection
+
+    closed: list[bool] = []
+    original = Connection.close
+
+    def spy(self) -> None:
+        closed.append(True)
+        original(self)
+
+    with mock.patch.object(Connection, "close", spy):
+        with pytest.raises(RequestError):
+            server_and_mc({"auth": "Fail"}, token="whatever")
+    assert closed, "connect() must close the socket when the auth handshake fails"
+
+
+def test_set_player_with_token_wire_format(server_and_mc):
+    srv, mc = server_and_mc({"setPlayer": "1"})
+    mc.set_player("Alice", token="tok123")
+    srv.wait_for(1)
+    assert srv.received == ["setPlayer(Alice,tok123)"]  # the wire still carries the token
+
+
+def test_set_player_token_not_leaked_on_failure(server_and_mc):
+    srv, mc = server_and_mc({"setPlayer": "Fail"})
+    with pytest.raises(RequestError) as exc:
+        mc.set_player("Alice", token="SECRET-TOKEN")
+    assert "SECRET-TOKEN" not in str(exc.value)
+
+
+def test_agent_spawn_rejects_partial_coords(server_and_mc):
+    srv, mc = server_and_mc()
+    with pytest.raises(ValueError):
+        mc.agent.spawn(x=5)  # y, z omitted -> would put literal "None" on the wire
+    with pytest.raises(ValueError):
+        mc.agent.spawn(1, 2)  # z omitted
+
+
 def test_reactive_events(server_and_mc):
     srv, mc = server_and_mc({
         "events.player.moves": "3,64,-2,Alice|4,64,-2,Alice",
