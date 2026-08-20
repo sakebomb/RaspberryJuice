@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "raspberryjuice"
-version = "2.0.0"
+version = "2.1.0"
 description = "A friendly, typed Python client for the RaspberryJuice Minecraft plugin (mcpi protocol) - great for teaching Python with Minecraft."
 readme = "README.md"
 requires-python = ">=3.9"

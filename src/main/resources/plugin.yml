@@ -4,5 +4,5 @@ database: false
 description: Implementation of the Minecraft PI modding API
 main: net.zhuoweizhang.raspberryjuice.RaspberryJuicePlugin
 name: RaspberryJuice
-startup: postworld
-version: '2.0.0'
+load: POSTWORLD
+version: '2.1.0'

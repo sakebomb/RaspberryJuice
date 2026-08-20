@@ -11,8 +11,19 @@ a teaching/scripting bridge — but it means:
   localhost` binds to loopback only. Only set `hostname: 0.0.0.0` on a trusted, firewalled
   network, and understand that *every* client on that network gets full control.
 - On a shared/survival server, treat a socket connection as equivalent to operator access to
-  the game world. The `max-blocks` cap guards against cuboid DoS; id-targeted `entity.*`
-  mutators refuse to act on players; but the surface is still powerful.
+  the game world. Several controls narrow that surface, but it's still powerful:
+  - **Cuboid DoS caps** — `max-blocks` bounds a single `getBlocks`/`setBlocks`/`clone`, and
+    `max-blocks-per-tick` bounds the cumulative volume all cuboid ops may touch in one tick (a
+    flood of near-cap requests the single-request cap alone can't stop).
+  - **Bounded socket I/O** — a per-connection line-length cap and bounded in/out queues stop one
+    client from exhausting server memory with a giant line, an input flood, or unread responses.
+  - **Per-session entity ownership** — only the connection that spawned an entity may mutate it
+    (move, teleport, set health/name/AI) **or remove it**; one client can't touch another's mobs,
+    and `world.removeEntities(-1)` deletes only your own. Id-targeted `entity.*` mutators also
+    refuse to act on players. Reads stay open.
+  - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
+    `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
+    server.
 - **Reactive event streams are scoped per connection and fail closed.** The reactive streams
   (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) report only the
   session's own player by default (`allow-global-events: false`) so a client isn't handed a
@@ -30,8 +41,9 @@ a teaching/scripting bridge — but it means:
   (`name: secret`). Once it is non-empty, binding is **fail closed**: `setPlayer(<name>,<token>)`
   succeeds only for a **listed** player whose token matches (constant-time compare); an unlisted
   player, a wrong token, or a missing token all get `Fail` and leave the connection bound to
-  nobody. Hand each user only their own player's token and a connection can bind to — and observe
-  — only the player it is authorized for. Leave `player-tokens` empty (the default) for
+  nobody. Repeated wrong tokens close the connection (like the `auth` handshake), so a weak token
+  can't be brute-forced over an open socket. Hand each user only their own player's token and a
+  connection can bind to — and observe — only the player it is authorized for. Leave `player-tokens` empty (the default) for
   single-user / trusted deployments, where `setPlayer(<name>)` keeps working with no token. The
   tokens travel the same unencrypted socket as everything else, so tunnel the port (see below).
 

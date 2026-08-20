@@ -15,7 +15,7 @@ body:
       label: Steps to reproduce
       description: What did you do? Include the mcpi/socket commands or Python snippet if relevant.
       placeholder: |
-        1. Start Paper 26.2 with raspberryjuice-2.0.0.jar
+        1. Start Paper 26.2 with raspberryjuice-2.1.0.jar
         2. Connect and send `world.getBlock(0,0,0)`
         3. ...
     validations:

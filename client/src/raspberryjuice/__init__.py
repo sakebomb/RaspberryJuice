@@ -9,7 +9,7 @@ from . import blocks
 from .connection import Connection, RequestError
 from .minecraft import Agent, Entity, Minecraft, Player, Vec3, World
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 __all__ = [
     "Minecraft",

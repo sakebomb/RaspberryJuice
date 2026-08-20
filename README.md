@@ -14,6 +14,33 @@ A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Pyth
 then `from raspberryjuice import Minecraft`. It covers blocks, the turtle **agent**, **entity/mob
 control**, and world/player commands. See [`client/README.md`](client/README.md).
 
+## Quickstart
+
+1. **Install the plugin.** Grab `raspberryjuice-*.jar` from the
+   [latest release](https://github.com/sakebomb/RaspberryJuice/releases/latest) (or build it —
+   see [Build](#build)) and drop it in your **Paper 26.2 / Java 25** server's `plugins/` folder,
+   then start the server. It listens on `localhost:4711` by default.
+2. **Install the Python client.**
+
+   ```bash
+   pip install ./client        # from a clone; or: pip install "git+https://github.com/sakebomb/RaspberryJuice#subdirectory=client"
+   ```
+
+3. **Drive Minecraft from Python.**
+
+   ```python
+   from raspberryjuice import Minecraft
+
+   mc = Minecraft.connect("localhost", 4711)
+   mc.post_to_chat("Hello from Python!")
+   mc.set_block(0, 10, 0, 41)        # place a gold block
+   print(mc.get_block(0, 10, 0))     # -> 41
+   ```
+
+On a shared or networked server, read [SECURITY.md](SECURITY.md) first — set an `auth-token` and
+keep the port on `localhost` (or a tunnel). Also see [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[CHANGELOG](CHANGELOG.md).
+
 ## Commands
 
 ### Commands supported
@@ -42,33 +69,43 @@ control**, and world/player commands. See [`client/README.md`](client/README.md)
 
 ### Extra commands
 
- - getBlocks(x1,y1,z1,x2,y2,z2) has been implemented
- - getDirection, getRotation, getPitch functions - get the 'direction' players and entities are facing
- - setDirection, setRotation, setPitch functions - set the 'direction' players and entities are facing
- - getPlayerId(playerName) - get the entity of a player by name
- - pollChatPosts() - get events back for posts to the chat
- - setSign(x,y,z,block type id,data,line1,line2,line3,line4)
-   - Wall signs (id=68 or block.SIGN_WALL.id) require data for facing direction 2=north, 3=south, 4=west, 5=east
-   - Standing signs (id=63 or block.SIGN_STANDING.id) require data for facing rotation (0-15) 0=south, 4=west, 8=north, 12=east
- - spawnEntity(x,y,z,entity) - creates an entity and returns its entity id. see entity.py for list.
- - getEntityTypes - returns all the entities supported by the server.
- - entity.getName(id) - get a player name for entity id. Reverse of getPlayerId(playerName)
- - getEntities - get all currently loaded entities list by optional entity type id
- - removeEntity - removes entity with specified id
- - removeEntities - removes all currently loaded entities by optional entity type id
- - entity.getEntities - get currently loaded entities list near specified entity by optional entity type id
- - entity.removeEntities - removes currently loaded entities near specified entity, by optional entity type id
- - player.getEntities - get currently loaded entities list near specified player entity id by optional entity type id
- - player.removeEntities - removes currently loaded entities near specified player entity id, by optional entity type id
- - events.pollProjectileHits - get events back of arrow hit
- - player.pollProjectileHits - get events back of arrow hit for the player
- - player.pollBlockHits - get block hits for the player
- - player.pollChatPosts - get events back for posts to the chat for the player
- - player.clearEvents - clear events for the player
- - entity.pollProjectileHits - get events back of arrow hit for an entity
- - entity.pollBlockHits - get block hits for an entity
- - entity.pollChatPosts - get events back for posts to the chat for an entity
- - entity.clearEvents - clear events for this entity
+Beyond the core mcpi calls above, these are registered too (the definitive list is
+`buildCommandRegistry()` in `RemoteSession.java`). Note the **namespaced** names
+(`world.spawnEntity`, `events.projectile.hits`, …) — the old bare/`poll*` forms are gone.
+
+**Blocks & world**
+
+ - world.getBlocks(x1,y1,z1,x2,y2,z2) - read a whole cuboid at once (respects `max-blocks`)
+ - world.getHeight(x,z) - the highest block y at a column
+ - world.setSign(x,y,z,blockTypeId,data,line1,line2,line3,line4) - place a sign
+   - Wall signs (id 68) take facing `data`: 2=north, 3=south, 4=west, 5=east
+   - Standing signs (id 63) take rotation `data` 0-15: 0=south, 4=west, 8=north, 12=east
+
+**Players & entities** (mutation is owner-scoped — see [Entity/mob control](#entitymob-control))
+
+ - world.getPlayerId(name) - the entity id of an online player by name
+ - entity.getName(id) - the name for an entity id (reverse of getPlayerId)
+ - world.getEntities([typeId]) - loaded entities, optionally filtered by type id
+ - world.getEntityTypes() - the entity types this server supports
+ - world.spawnEntity(x,y,z,typeId) - spawn an entity and return its id (your session owns it)
+ - world.removeEntity(id) / world.removeEntities([typeId]) - remove entities **you** spawned
+ - player.getEntities(dist,typeId) / player.removeEntities(dist,typeId) - near the bound player
+ - entity.getEntities(id,dist,typeId) / entity.removeEntities(id,dist,typeId) - near an entity
+ - player.getAbsPos() / player.setAbsPos(x,y,z) - absolute position, ignoring the `location` config
+ - {player,entity}.getDirection/setDirection, getRotation/setRotation, getPitch/setPitch - read/aim facing
+
+**Session identity**
+
+ - setPlayer(name[,token]) - bind this connection to an online player (scopes `player.*` and the
+   event streams; Python: `mc.set_player("Alice")`). With `player-tokens` configured the bind is
+   fail-closed and needs that player's token — see [SECURITY.md](SECURITY.md).
+
+**Event polls** (each drains the events queued since the last poll)
+
+ - events.block.hits / events.chat.posts / events.projectile.hits - global (subject to `allow-global-events`)
+ - player.events.block.hits / .chat.posts / .projectile.hits - scoped to the bound player
+ - entity.events.block.hits / .chat.posts / .projectile.hits - scoped to an entity
+ - events.clear / player.events.clear / entity.events.clear - clear queued events
 
 ### Entity/mob control
 
@@ -134,12 +171,16 @@ Modify config.yml:
  - enable-op-commands: true - allow the power commands `player.setGameMode` / `player.give`. Set false on a shared/survival server so a socket client can't self-grant creative mode or items.
  - allow-global-events: false - by default the reactive event streams (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) report only the session's OWN player's activity. A connection picks its player with `setPlayer(<name>)` (`mc.set_player("Alice")`); on a multi-player server an unbound connection receives no events at all (fail closed), so no client is handed an arbitrary player's feed. Set true to instead broadcast every player's events to every socket (a live tracking feed) - only on a trusted single-user server where you want whole-world/region triggers. See [SECURITY.md](SECURITY.md).
  - auth-token: '' - optional shared secret. When set, clients must send `auth(<token>)` before any other command (`Minecraft.connect(host, port, token="…")` in the Python client). Empty = no auth. The socket is unencrypted, so tunnel the port for confidentiality - see [SECURITY.md](SECURITY.md).
+ - player-tokens: - optional per-player bind secrets (a `name: secret` map). Empty (default) = `setPlayer(<name>)` binds by name, unchanged. Non-empty = **fail closed**: `setPlayer(<name>,<token>)` (Python: `mc.set_player("Alice", token="…")`) succeeds only for a listed player whose token matches, so on a multi-user server a client can bind to (and observe) only the player it holds a token for. Repeated wrong tokens close the connection. See [SECURITY.md](SECURITY.md).
 
 ## Libraries
 
-To use the extra features an modded version of the java and python libraries that were originally supplied by Mojang with the Pi is required, [github.com/zhuowei/RaspberryJuice/tree/master/src/main/resources/mcpi](https://github.com/zhuowei/RaspberryJuice/tree/master/src/main/resources/mcpi).  
+The recommended client is the typed Python package in [`client/`](client/) (see [Quickstart](#quickstart)).
 
-You only need the modded libraries to use the extra features, the original libraries supplied with Minecraft Pi edition still work, you just wont be able to use the extra features
+For the classic mcpi Java/Python libraries, a modded version (extending the ones Mojang shipped
+with Minecraft Pi) is bundled in this repo at
+[`src/main/resources/mcpi`](src/main/resources/mcpi). You only need the modded libraries for the
+extra features; the original Pi-edition libraries still work for the core commands.
 
 ## Build
 
@@ -158,6 +199,7 @@ The plugin jar is produced at `target/raspberryjuice-*.jar`; drop it in your Pap
 
 ## Version history
 
+ - 2.1.0 - programmable education platform: turtle **agent**, **entity/mob control**, world/player control, reactive events, and a typed **Python client** (`client/`); security hardening (per-session entity ownership incl. bulk removal, `auth-token` handshake, per-player `setPlayer` tokens + brute-force lockout, `enable-op-commands`, per-tick block budget, bounded socket I/O). See [CHANGELOG](CHANGELOG.md).
  - 2.0.0 - modernized fork: runs on Paper 26.2 / Java 25 (down through Paper 1.21); block layer ported off pre-1.13 numeric-ID APIs to Material/BlockData via a legacy-ID bridge (protocol unchanged); Adventure chat/sign APIs; security & concurrency hardening; JUnit 5 + MockBukkit test suite and CI
  - 1.12.1 - hostname specified in config.yml
  - 1.12 - getEntities, removeEntities, pollProjectileHits, events calls by player and entity
