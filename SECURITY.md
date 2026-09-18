@@ -21,6 +21,12 @@ a teaching/scripting bridge — but it means:
     `max-connections-per-minute` rate-limits new connections per IP, so a connection flood can't
     exhaust threads/fds. This also backs the auth/`setPlayer` lockouts: without it an attacker
     could reconnect after each 3-strike close to keep brute-forcing a token with no cooldown.
+  - **Per-session entity spawn cap** — `max-entities-per-session` (default 1000) bounds how many
+    entities one connection may create with `world.spawnEntity` over its lifetime, so a single
+    open session can't flood the world in one tick. `removeEntity` does not reset the quota.
+    Reconnecting starts a new quota; closed sessions do not despawn their mobs, so a reconnect
+    loop can still accumulate live entities, rate-limited by `max-connections-per-minute`.
+    0 disables the cap.
   - **Per-session entity ownership** — only the connection that spawned an entity may mutate it
     (move, teleport, set health/name/AI) **or remove it**; one client can't touch another's mobs,
     and `world.removeEntities(-1)` deletes only your own. Id-targeted `entity.*` mutators also
