@@ -90,14 +90,15 @@ final class RelativeGeometry {
 		}
 	}
 
-	/** Pack a chunk column into a set key. Java's signed {@code >> 4} is the correct floor-div
-	 *  for negative block coords ({@code -1} lives in chunk {@code -1}, not {@code 0}). */
+	/** Pack already-shifted chunk indices: low 32 bits = chunkX, high 32 bits = chunkZ. */
 	static long chunkKey(int chunkX, int chunkZ) {
 		return ((long) chunkX & 0xffffffffL) | ((long) chunkZ << 32);
 	}
 
-	/** Distinct chunk columns spanned by the inclusive block rectangle (Y ignored). Saturates
-	 *  to {@code Long.MAX_VALUE} on overflow so a huge span can't wrap and slip past a cap. */
+	/** Distinct chunk columns spanned by the inclusive block rectangle (Y ignored). Uses signed
+	 *  {@code >> 4} so negative blocks floor into the right column ({@code -1} is chunk {@code -1},
+	 *  not {@code 0}). Saturates to {@code Long.MAX_VALUE} on overflow so a huge span can't wrap
+	 *  and slip past a cap. */
 	static long chunkCount(int x1, int x2, int z1, int z2) {
 		int minX = Math.min(x1, x2);
 		int maxX = Math.max(x1, x2);
