@@ -1,6 +1,7 @@
 package net.zhuoweizhang.raspberryjuice;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -38,5 +39,43 @@ class RelativeGeometryTest {
 		assertEquals(-1.0, RelativeGeometry.getDistance(null, at(1, 1, 1)));
 		assertEquals(-1.0, RelativeGeometry.getDistance(at(1, 1, 1), null));
 		assertEquals(-1.0, RelativeGeometry.getDistance(null, null));
+	}
+
+	@Test
+	void chunkCount_isOne_forASingleBlock() {
+		assertEquals(1L, RelativeGeometry.chunkCount(0, 0, 0, 0));
+		assertEquals(1L, RelativeGeometry.chunkCount(5, 5, 5, 5));
+	}
+
+	@Test
+	void chunkCount_isOne_forBlocksInsideTheSameChunk() {
+		assertEquals(1L, RelativeGeometry.chunkCount(0, 15, 0, 15));
+	}
+
+	@Test
+	void chunkCount_countsAChunkBoundaryCrossing() {
+		// block 15 is chunk 0; block 16 is chunk 1
+		assertEquals(2L, RelativeGeometry.chunkCount(0, 16, 0, 0));
+		assertEquals(2L, RelativeGeometry.chunkCount(16, 0, 0, 0)); // order-independent
+	}
+
+	@Test
+	void chunkCount_usesArithmeticShiftForNegativeBlocks() {
+		// block -1 is chunk -1, not chunk 0 (Java >> floors; toward-zero /16 would be wrong)
+		assertEquals(1L, RelativeGeometry.chunkCount(-16, -1, 0, 0));
+		assertEquals(2L, RelativeGeometry.chunkCount(-17, -1, 0, 0));
+	}
+
+	@Test
+	void chunkCount_ofA256x256Floor_is256Chunks() {
+		// 256 blocks = 16 chunks on a side; 16*16 = 256. The default cap is sized to this.
+		assertEquals(256L, RelativeGeometry.chunkCount(0, 255, 0, 255));
+	}
+
+	@Test
+	void chunkKey_distinguishesNegativeAndPositive() {
+		assertTrue(RelativeGeometry.chunkKey(0, 0) != RelativeGeometry.chunkKey(-1, 0));
+		assertTrue(RelativeGeometry.chunkKey(1, 0) != RelativeGeometry.chunkKey(-1, 0));
+		assertEquals(RelativeGeometry.chunkKey(3, -4), RelativeGeometry.chunkKey(3, -4));
 	}
 }

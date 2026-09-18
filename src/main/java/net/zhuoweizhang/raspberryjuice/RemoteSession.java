@@ -106,6 +106,14 @@ public class RemoteSession {
 	// reset to 0 at the top of every tick() and charged against getMaxBlocksPerTick().
 	private long blocksUsedThisTick = 0;
 
+	// distinct chunk columns touched by coordinate ops in the current tick; cleared at the top
+	// of every tick() and charged against getMaxChunksPerTick(). Already-counted keys are free.
+	private final java.util.Set<Long> chunksTouchedThisTick = new java.util.HashSet<Long>();
+
+	// log the over-cap reject once: a session at the cap can still enqueue thousands of
+	// coordinate commands per tick, and warning on every one is a log-flood DoS of its own (#58).
+	private boolean chunkCapWarned = false;
+
 	private volatile boolean closed = false;
 
 	private Player attachedPlayer = null;
@@ -269,6 +277,7 @@ public class RemoteSession {
 			}
 		}
 		blocksUsedThisTick = 0; // reset the per-tick cuboid budget before draining the queue
+		chunksTouchedThisTick.clear(); // reset the per-tick distinct-chunk budget (#58)
 		int processedCount = 0;
 		String message;
 		while ((message = inQueue.poll()) != null) {
@@ -503,6 +512,7 @@ public class RemoteSession {
 
 	void cmdWorldGetBlock(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectChunk(loc, "world.getBlock", true)) return;
 		send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
 	}
 
@@ -513,6 +523,8 @@ public class RemoteSession {
 			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
 			send("Fail");
+		} else if (rejectCuboidChunks(loc1, loc2, "world.getBlocks", true)) {
+			// Fail already sent
 		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
 			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
@@ -525,12 +537,14 @@ public class RemoteSession {
 
 	void cmdWorldGetBlockWithData(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectChunk(loc, "world.getBlockWithData", true)) return;
 		Block block = world.getBlockAt(loc);
 		send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
 	}
 
 	void cmdWorldSetBlock(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectChunk(loc, "world.setBlock", false)) return;
 		updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
 	}
 
@@ -542,6 +556,8 @@ public class RemoteSession {
 		if (exceedsBlockLimit(loc1, loc2)) {
 			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+		} else if (rejectCuboidChunks(loc1, loc2, "world.setBlocks", false)) {
+			// silent: setBlocks is fire-and-forget
 		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
 			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
@@ -771,6 +787,7 @@ public class RemoteSession {
 		loc.setX(Double.parseDouble(x));
 		loc.setY(Double.parseDouble(y));
 		loc.setZ(Double.parseDouble(z));
+		if (rejectChunk(loc, "player.setAbsPos", false)) return;
 		currentPlayer.teleport(loc);
 	}
 
@@ -830,7 +847,9 @@ public class RemoteSession {
 	// missing/uncontrollable entity; setDirection/setRotation/setPitch stay silent (entitySkipped false).
 
 	void cmdWorldGetHeight(String[] args, World world, Server server) {
-		send(world.getHighestBlockYAt(geometry.parseRelativeBlockLocation(args[0], "0", args[1])) - origin.getBlockY());
+		Location loc = geometry.parseRelativeBlockLocation(args[0], "0", args[1]);
+		if (rejectChunk(loc, "world.getHeight", true)) return;
+		send(world.getHighestBlockYAt(loc) - origin.getBlockY());
 	}
 
 	void cmdEntityGetTile(String[] args, World world, Server server) {
@@ -911,6 +930,7 @@ public class RemoteSession {
 
 	void cmdWorldSetSign(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectChunk(loc, "world.setSign", false)) return;
 		Block thisBlock = world.getBlockAt(loc);
 		//blockType should be 68 for wall sign or 63 for standing sign
 		int blockType = Integer.parseInt(args[3]);
@@ -942,6 +962,7 @@ public class RemoteSession {
 			return;
 		}
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectChunk(loc, "world.spawnEntity", true)) return;
 		Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
 		ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
 		send(entity.getEntityId());
@@ -1019,6 +1040,8 @@ public class RemoteSession {
 			// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
 			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
 				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
+		} else if (!reserveCloneChunks(a, b, dest)) {
+			warnChunkBudgetOnce("world.clone");
 		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(a, b))) {
 			// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
 			// or a huge clone under max-blocks=0 - can't OOM the tick
@@ -1100,7 +1123,9 @@ public class RemoteSession {
 	void cmdEntityMoveTo(String[] args, World world, Server server) {
 		Entity e = controllableEntity(args[0]);
 		if (e instanceof Mob mob) {
-			mob.getPathfinder().moveTo(geometry.parseRelativeLocation(args[1], args[2], args[3]));
+			Location dest = geometry.parseRelativeLocation(args[1], args[2], args[3]);
+			if (rejectChunk(dest, "entity.moveTo", false)) return;
+			mob.getPathfinder().moveTo(dest);
 		} else {
 			entitySkipped("entity.moveTo", args[0], false);
 		}
@@ -1205,6 +1230,7 @@ public class RemoteSession {
 			bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
 			yaw = loc.getYaw();
 		}
+		if (rejectChunk(new Location(world, bx, by, bz), "agent.spawn", false)) return;
 		if (agent != null) agent.remove();
 		agent = Agent.spawn(plugin, world, bx, by, bz, yaw);
 	}
@@ -1228,22 +1254,30 @@ public class RemoteSession {
 	// relative movement (n optional, default 1)
 	void cmdAgentForward(String[] args, World world, Server server) {
 		if (!requireAgent()) return;
-		agent.forward(stepArg(args));
+		int n = stepArg(args);
+		if (rejectAgentMove(world, s -> s.forward(n), "agent.forward")) return;
+		agent.forward(n);
 	}
 
 	void cmdAgentBack(String[] args, World world, Server server) {
 		if (!requireAgent()) return;
-		agent.back(stepArg(args));
+		int n = stepArg(args);
+		if (rejectAgentMove(world, s -> s.back(n), "agent.back")) return;
+		agent.back(n);
 	}
 
 	void cmdAgentUp(String[] args, World world, Server server) {
 		if (!requireAgent()) return;
-		agent.up(stepArg(args));
+		int n = stepArg(args);
+		if (rejectAgentMove(world, s -> s.up(n), "agent.up")) return;
+		agent.up(n);
 	}
 
 	void cmdAgentDown(String[] args, World world, Server server) {
 		if (!requireAgent()) return;
-		agent.down(stepArg(args));
+		int n = stepArg(args);
+		if (rejectAgentMove(world, s -> s.down(n), "agent.down")) return;
+		agent.down(n);
 	}
 
 	void cmdAgentTurnLeft(String[] args, World world, Server server) {
@@ -1259,6 +1293,7 @@ public class RemoteSession {
 	// agent.setBlock - place a block at the agent's position (id 0 clears to air)
 	void cmdAgentSetBlock(String[] args, World world, Server server) {
 		if (!requireAgent()) return;
+		if (rejectChunk(new Location(world, agent.x(), agent.y(), agent.z()), "agent.setBlock", false)) return;
 		int id = Integer.parseInt(args[0]);
 		byte data = (args.length > 1 ? Byte.parseByte(args[1]) : (byte) 0);
 		updateBlock(world, new Location(world, agent.x(), agent.y(), agent.z()), id, data);
@@ -1299,6 +1334,94 @@ public class RemoteSession {
 		if (volume > cap - blocksUsedThisTick) return false;
 		blocksUsedThisTick += volume;
 		return true;
+	}
+
+	// Charge one chunk column against this tick's distinct-chunk budget. Returns true if the
+	// key was already counted or it fits; returns false (adding nothing) if a new key would
+	// exceed max-chunks-per-tick. 0 / negative = unlimited. Visible for testing. #58
+	boolean reserveChunk(int chunkX, int chunkZ) {
+		int cap = plugin.getMaxChunksPerTick();
+		if (cap <= 0) return true;
+		long key = RelativeGeometry.chunkKey(chunkX, chunkZ);
+		if (chunksTouchedThisTick.contains(key)) return true;
+		if (chunksTouchedThisTick.size() >= cap) return false;
+		chunksTouchedThisTick.add(key);
+		return true;
+	}
+
+	boolean reserveLocationChunk(Location loc) {
+		return reserveChunk(loc.getBlockX() >> 4, loc.getBlockZ() >> 4);
+	}
+
+	// Charge every distinct chunk column in the inclusive block rectangle (Y ignored).
+	// All-or-nothing: if the rectangle cannot fit, nothing is added. A cuboid whose own
+	// span is larger than the cap is rejected without iterating. Visible for testing. #58
+	boolean reserveCuboidChunks(Location a, Location b) {
+		int minX = Math.min(a.getBlockX(), b.getBlockX());
+		int maxX = Math.max(a.getBlockX(), b.getBlockX());
+		int minZ = Math.min(a.getBlockZ(), b.getBlockZ());
+		int maxZ = Math.max(a.getBlockZ(), b.getBlockZ());
+		return reserveCuboidChunks(minX, maxX, minZ, maxZ);
+	}
+
+	boolean reserveCuboidChunks(int minX, int maxX, int minZ, int maxZ) {
+		int cap = plugin.getMaxChunksPerTick();
+		if (cap <= 0) return true;
+		long n = RelativeGeometry.chunkCount(minX, maxX, minZ, maxZ);
+		if (n > cap) return false; // cannot fit even if every already-counted key overlaps
+		int cx0 = minX >> 4, cx1 = maxX >> 4;
+		int cz0 = minZ >> 4, cz1 = maxZ >> 4;
+		java.util.ArrayList<Long> newly = new java.util.ArrayList<Long>();
+		for (int cx = cx0; cx <= cx1; cx++) {
+			for (int cz = cz0; cz <= cz1; cz++) {
+				long key = RelativeGeometry.chunkKey(cx, cz);
+				if (!chunksTouchedThisTick.contains(key)) newly.add(key);
+			}
+		}
+		if (chunksTouchedThisTick.size() + newly.size() > cap) return false;
+		chunksTouchedThisTick.addAll(newly);
+		return true;
+	}
+
+	// Source cuboid plus the dest cuboid of the same xz-span (clone). Not atomic across the
+	// two rectangles: a dest reject leaves the source charged. Conservative and rare. #58
+	boolean reserveCloneChunks(Location a, Location b, Location dest) {
+		int minX = Math.min(a.getBlockX(), b.getBlockX());
+		int maxX = Math.max(a.getBlockX(), b.getBlockX());
+		int minZ = Math.min(a.getBlockZ(), b.getBlockZ());
+		int maxZ = Math.max(a.getBlockZ(), b.getBlockZ());
+		if (!reserveCuboidChunks(minX, maxX, minZ, maxZ)) return false;
+		int dx = dest.getBlockX();
+		int dz = dest.getBlockZ();
+		return reserveCuboidChunks(dx, dx + (maxX - minX), dz, dz + (maxZ - minZ));
+	}
+
+	private void warnChunkBudgetOnce(String command) {
+		if (chunkCapWarned) return;
+		chunkCapWarned = true;
+		plugin.getLogger().warning(command + " rejected - session at max-chunks-per-tick ("
+			+ plugin.getMaxChunksPerTick() + ") from " + socket.getRemoteSocketAddress() + ".");
+	}
+
+	/** @return true if the command should abort (over budget). */
+	private boolean rejectChunk(Location loc, String command, boolean reply) {
+		if (reserveLocationChunk(loc)) return false;
+		warnChunkBudgetOnce(command);
+		if (reply) send("Fail");
+		return true;
+	}
+
+	private boolean rejectCuboidChunks(Location a, Location b, String command, boolean reply) {
+		if (reserveCuboidChunks(a, b)) return false;
+		warnChunkBudgetOnce(command);
+		if (reply) send("Fail");
+		return true;
+	}
+
+	private boolean rejectAgentMove(World world, java.util.function.Consumer<AgentState> move, String command) {
+		AgentState peek = new AgentState(agent.x(), agent.y(), agent.z(), agent.facing());
+		move.accept(peek);
+		return rejectChunk(new Location(world, peek.getX(), peek.getY(), peek.getZ()), command, false);
 	}
 
 	// create a cuboid of lots of blocks
@@ -1417,7 +1540,9 @@ public class RemoteSession {
 	private void entitySetPos(Entity target, String x, String y, String z) {
 		Location loc = target.getLocation();
 		// keep current pitch/yaw so teleporting only moves the target
-		target.teleport(geometry.parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+		Location dest = geometry.parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw());
+		if (rejectChunk(dest, "setPos", false)) return;
+		target.teleport(dest);
 	}
 
 	private String entityGetTile(Entity target) {
@@ -1426,7 +1551,9 @@ public class RemoteSession {
 
 	private void entitySetTile(Entity target, String x, String y, String z) {
 		Location loc = target.getLocation();
-		target.teleport(geometry.parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+		Location dest = geometry.parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw());
+		if (rejectChunk(dest, "setTile", false)) return;
+		target.teleport(dest);
 	}
 
 	private String entityGetDirection(Entity target) {

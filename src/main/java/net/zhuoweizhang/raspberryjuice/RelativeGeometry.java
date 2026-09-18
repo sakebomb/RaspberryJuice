@@ -90,6 +90,32 @@ final class RelativeGeometry {
 		}
 	}
 
+	/** Pack a chunk column into a set key. Java's signed {@code >> 4} is the correct floor-div
+	 *  for negative block coords ({@code -1} lives in chunk {@code -1}, not {@code 0}). */
+	static long chunkKey(int chunkX, int chunkZ) {
+		return ((long) chunkX & 0xffffffffL) | ((long) chunkZ << 32);
+	}
+
+	/** Distinct chunk columns spanned by the inclusive block rectangle (Y ignored). Saturates
+	 *  to {@code Long.MAX_VALUE} on overflow so a huge span can't wrap and slip past a cap. */
+	static long chunkCount(int x1, int x2, int z1, int z2) {
+		int minX = Math.min(x1, x2);
+		int maxX = Math.max(x1, x2);
+		int minZ = Math.min(z1, z2);
+		int maxZ = Math.max(z1, z2);
+		long dx = (long) (maxX >> 4) - (minX >> 4) + 1;
+		long dz = (long) (maxZ >> 4) - (minZ >> 4) + 1;
+		try {
+			return Math.multiplyExact(dx, dz);
+		} catch (ArithmeticException overflow) {
+			return Long.MAX_VALUE;
+		}
+	}
+
+	static long chunkCount(Location p1, Location p2) {
+		return chunkCount(p1.getBlockX(), p2.getBlockX(), p1.getBlockZ(), p2.getBlockZ());
+	}
+
 	static double getDistance(Entity ent1, Entity ent2) {
 		if (ent1 == null || ent2 == null)
 			return -1;
