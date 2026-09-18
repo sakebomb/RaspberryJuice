@@ -121,8 +121,14 @@ public class RemoteSession {
 
 	// ids of entities THIS session spawned (via world.spawnEntity). Only the owning session may
 	// MUTATE an entity - so one client can't kill/move another client's mobs. Reads are open.
+	// Also the lifetime spawn-count for max-entities-per-session (#57): ids stay in this set after
+	// removeEntity so a client cannot reset the quota by deleting what it just spawned.
 	// Main-thread-only access (all commands run on the tick), so a plain HashSet is fine.
 	protected final java.util.Set<Integer> ownedEntities = new java.util.HashSet<Integer>();
+
+	// log the over-cap reject once: a session at the cap can still enqueue thousands of spawn
+	// commands per tick, and warning on every one is a log-flood DoS of its own (#57 review).
+	private boolean entityCapWarned = false;
 
 	// optional shared-secret auth (config auth-token): true from the start when no token is set
 	private boolean authenticated = true;
@@ -926,6 +932,15 @@ public class RemoteSession {
 	}
 
 	void cmdWorldSpawnEntity(String[] args, World world, Server server) {
+		if (!plugin.withinEntityCap(ownedEntities.size())) {
+			if (!entityCapWarned) {
+				entityCapWarned = true;
+				plugin.getLogger().warning("world.spawnEntity rejected - session at max-entities-per-session ("
+					+ plugin.getMaxEntitiesPerSession() + ") from " + socket.getRemoteSocketAddress() + ".");
+			}
+			send("Fail");
+			return;
+		}
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 		Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
 		ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
