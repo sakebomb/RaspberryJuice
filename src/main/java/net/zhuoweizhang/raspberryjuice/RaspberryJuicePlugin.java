@@ -61,6 +61,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	// Max concurrent socket sessions (0 = unlimited). Bounds thread/fd use from a connection flood.
 	private int maxSessions;
 
+	// Max entities one session may spawn via world.spawnEntity over its lifetime (0 = unlimited).
+	// Bounds a spawn-flood DoS: a tick drains thousands of commands, each of which could otherwise
+	// add a live entity with no cap. Lifetime count (ownedEntities is never shrunk) so removeEntity
+	// cannot reset the quota. #57
+	private int maxEntitiesPerSession;
+
 	// Per-IP new-connection rate limiter (#56): blunts a connection flood and stops an attacker from
 	// side-stepping the 3-strikes auth/setPlayer lockouts by just reconnecting for more guesses.
 	private ConnectionRateLimiter connectionRateLimiter;
@@ -81,6 +87,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public long getMaxBlocksPerTick() {
 		return maxBlocksPerTick;
+	}
+	public int getMaxEntitiesPerSession() {
+		return maxEntitiesPerSession;
 	}
 	public boolean isOpCommandsEnabled() {
 		return opCommandsEnabled;
@@ -157,6 +166,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		//max concurrent socket sessions (0 = unlimited), and max new connections per remote IP per
 		//minute (0 = unlimited) - bound resource use from a flood and slow token brute-forcing (#56)
 		maxSessions = this.getConfig().getInt("max-sessions", 100);
+		maxEntitiesPerSession = this.getConfig().getInt("max-entities-per-session", 1000);
+		if (maxEntitiesPerSession < 0) {
+			getLogger().warning("max-entities-per-session is negative (" + maxEntitiesPerSession
+				+ "); treating as 0 (unlimited). Use 0 to disable the cap, not a negative.");
+			maxEntitiesPerSession = 0;
+		}
 		int maxConnectionsPerMinute = this.getConfig().getInt("max-connections-per-minute", 60);
 		connectionRateLimiter = new ConnectionRateLimiter(maxConnectionsPerMinute, 60_000L);
 
@@ -318,6 +333,17 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	/** True if a new session fits under the concurrent-session cap (0 = unlimited). Pure, for tests. */
 	boolean withinSessionCap(int currentSessions) {
 		return maxSessions <= 0 || currentSessions < maxSessions;
+	}
+
+	/** True if a session with {@code currentOwned} spawned entities may spawn one more
+	 *  (0 = unlimited). Pure, for tests. #57 */
+	boolean withinEntityCap(int currentOwned) {
+		return maxEntitiesPerSession <= 0 || currentOwned < maxEntitiesPerSession;
+	}
+
+	/** Visible for tests: override the spawn cap without reloading config. */
+	void setMaxEntitiesPerSession(int n) {
+		maxEntitiesPerSession = n;
 	}
 
 	/** The IP portion of a socket address for rate-limiting (falls back to the full string). */

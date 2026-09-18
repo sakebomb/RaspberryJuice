@@ -77,6 +77,13 @@ max-blocks-per-tick: 10000000
 # and closed immediately. Raise it for a large classroom; 0 disables the cap.
 max-sessions: 100
 
+# Maximum entities one socket session may spawn via world.spawnEntity over the life of the
+# connection. A tick drains thousands of commands, so without this a client can grow the world's
+# live entity count until the server stalls. This is a lifetime spawn count (removeEntity does
+# not free a slot; reconnecting starts a new quota). Oversized spawns are rejected with "Fail"
+# — spawnEntity is request-response, so staying silent would desync the client. 0 disables the cap.
+max-entities-per-session: 1000
+
 # Maximum NEW connections one remote IP may open per minute. Bounds connection-flood churn and
 # slows token brute-forcing: the auth / setPlayer lockouts close a connection after 3 bad guesses,
 # but without this an attacker just reconnects for another 3 with no cooldown. Excess connections

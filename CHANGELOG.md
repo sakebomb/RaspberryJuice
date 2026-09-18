@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. This project roughly follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- **Per-session entity spawn cap** — `max-entities-per-session` (default 1000) bounds how many
+  entities one connection may create with `world.spawnEntity` over its lifetime. A tick drains
+  thousands of commands, so without this a client could grow the world's live entity count until
+  the server stalls. Over the cap the command returns `Fail` (it is request-response; staying
+  silent would desync the client). `removeEntity` does not free a slot; 0 disables the cap. (#57)
+
 ## [2.1.0] — 2026-08-20
 
 The "programmable education platform" work — turning RaspberryJuice into a STEM teaching tool.
@@ -90,5 +99,6 @@ Modernized fork of the end-of-life [zhuowei/RaspberryJuice](https://github.com/z
 - Rebuilt test suite (JUnit 5 + Mockito + MockBukkit) and toolchain (Maven wrapper, no system
   Maven).
 
+[Unreleased]: https://github.com/sakebomb/RaspberryJuice/compare/v2.1.0...HEAD
 [2.1.0]: https://github.com/sakebomb/RaspberryJuice/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/sakebomb/RaspberryJuice/releases/tag/v2.0.0

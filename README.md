@@ -87,7 +87,7 @@ Beyond the core mcpi calls above, these are registered too (the definitive list 
  - entity.getName(id) - the name for an entity id (reverse of getPlayerId)
  - world.getEntities([typeId]) - loaded entities, optionally filtered by type id
  - world.getEntityTypes() - the entity types this server supports
- - world.spawnEntity(x,y,z,typeId) - spawn an entity and return its id (your session owns it)
+ - world.spawnEntity(x,y,z,typeId) - spawn an entity and return its id (your session owns it). Respects `max-entities-per-session`; over the cap the command returns `Fail` and does not spawn.
  - world.removeEntity(id) / world.removeEntities([typeId]) - remove entities **you** spawned
  - player.getEntities(dist,typeId) / player.removeEntities(dist,typeId) - near the bound player
  - entity.getEntities(id,dist,typeId) / entity.removeEntities(id,dist,typeId) - near an entity
@@ -168,6 +168,7 @@ Modify config.yml:
  - max-blocks: 1000000 - maximum blocks a single getBlocks/setBlocks may span; oversized requests are rejected. 0 disables the cap.
  - max-blocks-per-tick: 10000000 - cumulative blocks all cuboid ops (getBlocks/setBlocks/clone) may touch in one server tick; bounds a flood of near-cap requests that `max-blocks` alone can't. 0 disables the per-tick budget (not recommended).
  - max-sessions: 100 - maximum concurrent socket sessions; connections beyond this are refused. Raise it for a large classroom; 0 disables the cap.
+ - max-entities-per-session: 1000 - maximum entities one socket session may spawn via `world.spawnEntity` over the life of the connection (a lifetime count: `removeEntity` does not free a slot). Over the cap the command returns `Fail`. Raise it for a lesson that spawns many mobs; lower it on a crowded classroom server. 0 disables the cap.
  - max-connections-per-minute: 60 - maximum new connections one remote IP may open per minute. Bounds connection-flood churn and backs the auth/`setPlayer` brute-force lockouts (an attacker can't just reconnect for more guesses). 0 disables per-IP rate limiting.
  - welcome-message: true - broadcast a "Welcome &lt;player&gt;" message on join. Set false to stay silent.
  - enable-op-commands: true - allow the power commands `player.setGameMode` / `player.give`. Set false on a shared/survival server so a socket client can't self-grant creative mode or items.
