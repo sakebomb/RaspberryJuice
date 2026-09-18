@@ -6,6 +6,13 @@ All notable changes to this project are documented here. This project roughly fo
 ## [Unreleased]
 
 ### Security
+- **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
+  distinct chunk columns one session may touch in a single tick via coordinate commands
+  (`getBlock`/`setBlock`/`getBlocks`/`getHeight`/`spawnEntity`/teleports/…). Already-touched
+  chunks in the same tick are free; a cuboid that spans more columns than the cap is rejected
+  whole. Request-response commands return `Fail`; fire-and-forget stay silent. This rates
+  chunk generation (a scatter of far coordinates can no longer stall the main thread in one
+  tick); it is not a world-size cap — later ticks can still generate more. 0 disables. (#58)
 - **Per-session entity spawn cap** — `max-entities-per-session` (default 1000) bounds how many
   entities one connection may create with `world.spawnEntity` over its lifetime. A tick drains
   thousands of commands, so without this a client could grow the world's live entity count until

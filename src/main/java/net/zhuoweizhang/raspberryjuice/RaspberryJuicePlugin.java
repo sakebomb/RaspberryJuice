@@ -50,6 +50,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	private long maxBlocksPerTick;
 
+	// Distinct chunk columns one session may touch in a single tick (0 = unlimited). Bounds a
+	// scatter of far-coordinate getBlock/setBlock/getHeight/… calls that would otherwise each
+	// force a main-thread chunk generate. Per-tick, not a world-size cap. #58
+	private int maxChunksPerTick;
+
 	private boolean welcomeMessage;
 
 	private boolean opCommandsEnabled;
@@ -87,6 +92,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public long getMaxBlocksPerTick() {
 		return maxBlocksPerTick;
+	}
+	public int getMaxChunksPerTick() {
+		return maxChunksPerTick;
 	}
 	public int getMaxEntitiesPerSession() {
 		return maxEntitiesPerSession;
@@ -149,6 +157,15 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		//cumulative blocks all cuboid ops (getBlocks/setBlocks/clone) may touch in one server
 		//tick - bounds a flood of near-cap requests that would otherwise stack up (0 = unlimited)
 		maxBlocksPerTick = this.getConfig().getLong("max-blocks-per-tick", 10000000L);
+
+		// distinct chunk columns all coordinate ops may touch in one tick (0 = unlimited).
+		// Negative is treated as 0 (unlimited), same idiom as max-entities-per-session. #58
+		maxChunksPerTick = this.getConfig().getInt("max-chunks-per-tick", 256);
+		if (maxChunksPerTick < 0) {
+			getLogger().warning("max-chunks-per-tick is negative (" + maxChunksPerTick
+				+ "); treating as 0 (unlimited). Use 0 to disable the cap, not a negative.");
+			maxChunksPerTick = 0;
+		}
 
 		//whether to broadcast a "Welcome <player>" message to everyone on join
 		welcomeMessage = this.getConfig().getBoolean("welcome-message", true);
@@ -344,6 +361,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	/** Visible for tests: override the spawn cap without reloading config. */
 	void setMaxEntitiesPerSession(int n) {
 		maxEntitiesPerSession = n;
+	}
+
+	/** Visible for tests: override the per-tick chunk budget without reloading config. */
+	void setMaxChunksPerTick(int n) {
+		maxChunksPerTick = n;
 	}
 
 	/** The IP portion of a socket address for rate-limiting (falls back to the full string). */

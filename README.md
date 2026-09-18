@@ -75,7 +75,7 @@ Beyond the core mcpi calls above, these are registered too (the definitive list 
 
 **Blocks & world**
 
- - world.getBlocks(x1,y1,z1,x2,y2,z2) - read a whole cuboid at once (respects `max-blocks`)
+ - world.getBlocks(x1,y1,z1,x2,y2,z2) - read a whole cuboid at once (respects `max-blocks` and `max-chunks-per-tick`)
  - world.getHeight(x,z) - the highest block y at a column
  - world.setSign(x,y,z,blockTypeId,data,line1,line2,line3,line4) - place a sign
    - Wall signs (id 68) take facing `data`: 2=north, 3=south, 4=west, 5=east
@@ -167,6 +167,7 @@ Modify config.yml:
  - hitclick: RIGHT - determine whether hit events are triggered by LEFT clicks, RIGHT clicks or BOTH
  - max-blocks: 1000000 - maximum blocks a single getBlocks/setBlocks may span; oversized requests are rejected. 0 disables the cap.
  - max-blocks-per-tick: 10000000 - cumulative blocks all cuboid ops (getBlocks/setBlocks/clone) may touch in one server tick; bounds a flood of near-cap requests that `max-blocks` alone can't. 0 disables the per-tick budget (not recommended).
+ - max-chunks-per-tick: 256 - distinct chunk columns one session may touch in a single tick (getBlock/setBlock/getBlocks/getHeight/spawnEntity/teleport/…). Stops a scatter of far coordinates from force-generating thousands of chunks on the main thread. Already-touched chunks in the same tick are free. This rates generation; it does not cap eventual world size. 0 disables the cap.
  - max-sessions: 100 - maximum concurrent socket sessions; connections beyond this are refused. Raise it for a large classroom; 0 disables the cap.
  - max-entities-per-session: 1000 - maximum entities one socket session may spawn via `world.spawnEntity` over the life of the connection (a lifetime count: `removeEntity` does not free a slot). Over the cap the command returns `Fail`. Raise it for a lesson that spawns many mobs; lower it on a crowded classroom server. 0 disables the cap.
  - max-connections-per-minute: 60 - maximum new connections one remote IP may open per minute. Bounds connection-flood churn and backs the auth/`setPlayer` brute-force lockouts (an attacker can't just reconnect for more guesses). 0 disables per-IP rate limiting.

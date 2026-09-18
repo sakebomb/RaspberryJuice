@@ -15,6 +15,16 @@ a teaching/scripting bridge — but it means:
   - **Cuboid DoS caps** — `max-blocks` bounds a single `getBlocks`/`setBlocks`/`clone`, and
     `max-blocks-per-tick` bounds the cumulative volume all cuboid ops may touch in one tick (a
     flood of near-cap requests the single-request cap alone can't stop).
+  - **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
+    distinct chunk columns one session may touch in a single tick, so a client can't issue
+    thousands of `getBlock`/`setBlock`/`getHeight`/teleport calls at never-generated coordinates
+    and stall the main thread (plus grow region files) in one tick. Already-touched chunks in
+    the same tick are free; a cuboid spanning more columns than the cap is rejected whole.
+    Request-response commands return `Fail`; fire-and-forget stay silent. This rates generation
+    per session per tick — it is not a world-size cap. Later ticks can still generate more;
+    reconnects start a fresh tick budget. Closed sessions do not unload generated chunks.
+    Combined with `max-sessions` and `max-connections-per-minute` this bounds the *rate*, not
+    the eventual world size. 0 disables the cap.
   - **Bounded socket I/O** — a per-connection line-length cap and bounded in/out queues stop one
     client from exhausting server memory with a giant line, an input flood, or unread responses.
   - **Connection admission control** — `max-sessions` caps concurrent sessions and
