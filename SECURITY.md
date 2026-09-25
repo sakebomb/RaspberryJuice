@@ -40,7 +40,21 @@ a teaching/scripting bridge — but it means:
   - **Per-session entity ownership** — only the connection that spawned an entity may mutate it
     (move, teleport, set health/name/AI) **or remove it**; one client can't touch another's mobs,
     and `world.removeEntities(-1)` deletes only your own. Id-targeted `entity.*` mutators also
-    refuse to act on players. Reads stay open.
+    refuse to act on players. Reads stay open unless `plots` is configured (below).
+  - **Per-student plots** — `plots` (empty by default) is an opt-in classroom wall, separate
+    from `max-chunks-per-tick`. A non-empty map fail-closes the socket to the axis-aligned
+    plot of the player bound with `setPlayer`, in the same coordinate space as `location`.
+    An unbound session, or a name with no entry, cannot read or write coordinates and does
+    not latch the host player. Cross-plot reads (`getBlocks`, `spawnEntity`) return `Fail`;
+    fire-and-forget writes stay silent. `world.getEntities` drops rows outside the plot and
+    still sends one line of absolute coordinates. `world.setTime` / `world.setWeather` are
+    rejected while the sandbox is on (`sandbox-lock-world-rules`, default true). A present
+    `plots` value that is not a map turns the sandbox on with nobody plotted. Students must
+    not be op, and `enable-op-commands` should be false — the plugin warns if it is still
+    true. The vanilla client can still break and place blocks until a later change; fluids,
+    pistons, and explosions are not stopped. Keep eight blocks between plot edges for water,
+    and at least two for pistons. Overlapping plots are shared, and a later reset of either
+    plot wipes the shared cells.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.
