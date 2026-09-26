@@ -134,6 +134,9 @@ public class RemoteSession {
 	// One sandbox-cap reject warning per connection. Distinct from the per-request max-blocks warning. #18
 	private boolean capWarned = false;
 
+	// One freeze reject warning per connection. Distinct from plotWarned. #18
+	private boolean freezeWarned = false;
+
 	// the per-session programmable agent (turtle), null until agent.spawn() is called
 	private Agent agent = null;
 
@@ -385,6 +388,7 @@ public class RemoteSession {
 				send("Fail");
 				return;
 			}
+			if (rejectFrozenBeforeHandler(c)) return;
 			handler.handle(args, world, server);
 		} catch (Exception e) {
 			//log with the offending command and full context instead of dumping to stdout
@@ -887,8 +891,10 @@ public class RemoteSession {
 
 	void cmdEntitySetTile(String[] args, World world, Server server) {
 		Entity entity = controllableEntity(args[0]);
-		if (entity != null) entitySetTile(entity, args[1], args[2], args[3]);
-		else entitySkipped("entity.setTile", args[0], true);
+		if (entity != null) {
+			if (rejectFrozen("entity.setTile", null)) return;
+			entitySetTile(entity, args[1], args[2], args[3]);
+		} else entitySkipped("entity.setTile", args[0], true);
 	}
 
 	void cmdEntityGetPos(String[] args, World world, Server server) {
@@ -899,8 +905,10 @@ public class RemoteSession {
 
 	void cmdEntitySetPos(String[] args, World world, Server server) {
 		Entity entity = controllableEntity(args[0]);
-		if (entity != null) entitySetPos(entity, args[1], args[2], args[3]);
-		else entitySkipped("entity.setPos", args[0], true);
+		if (entity != null) {
+			if (rejectFrozen("entity.setPos", null)) return;
+			entitySetPos(entity, args[1], args[2], args[3]);
+		} else entitySkipped("entity.setPos", args[0], true);
 	}
 
 	void cmdEntitySetDirection(String[] args, World world, Server server) {
@@ -1539,6 +1547,10 @@ public class RemoteSession {
 		return maxCommandsPerTick;
 	}
 
+	java.util.Set<String> commandNamesForTest() {
+		return commandRegistry.keySet();
+	}
+
 	Player attachedForTest() {
 		return attachedPlayer;
 	}
@@ -1651,6 +1663,72 @@ public class RemoteSession {
 
 	private int spaceZ(Location absolute) {
 		return absolute.getBlockZ() - origin.getBlockZ();
+	}
+
+	/** How a frozen bound session treats one registered command. Unlisted names fail closed. */
+	enum FrozenEffect { ALLOW, SILENT, FAIL, ZERO, PROBE }
+
+	private static final java.util.Set<String> FREEZE_ALLOW = java.util.Set.of(
+		"world.getBlock", "world.getBlocks", "world.getBlockWithData", "world.getHeight",
+		"world.getEntities", "world.getEntityTypes", "world.getTime", "world.getPlayerIds", "world.getPlayerId",
+		"entity.getTile", "entity.getPos", "entity.getDirection", "entity.getRotation", "entity.getPitch",
+		"entity.getHealth", "entity.getEntities", "entity.getName",
+		"player.getTile", "player.getPos", "player.getAbsPos", "player.getDirection",
+		"player.getRotation", "player.getPitch", "player.getEntities",
+		"setPlayer", "chat.post",
+		"events.block.hits", "events.chat.posts", "events.projectile.hits",
+		"events.player.moves", "events.block.places", "events.block.breaks", "events.player.deaths",
+		"entity.events.block.hits", "entity.events.chat.posts", "entity.events.projectile.hits",
+		"player.events.block.hits", "player.events.chat.posts", "player.events.projectile.hits",
+		"agent.getPos", "agent.getRotation", "agent.turnLeft", "agent.turnRight");
+
+	private static final java.util.Set<String> FREEZE_SILENT = java.util.Set.of(
+		"world.setBlock", "world.setBlocks", "world.setSign", "world.clone", "world.setTime", "world.setWeather",
+		"player.setTile", "player.setPos", "player.setAbsPos", "player.setDirection", "player.setRotation", "player.setPitch",
+		"player.setGameMode", "player.give",
+		"entity.setDirection", "entity.setRotation", "entity.setPitch", "entity.lookAt", "entity.moveTo",
+		"entity.setHealth", "entity.setName", "entity.setAI",
+		"agent.spawn", "agent.despawn", "agent.forward", "agent.back", "agent.up", "agent.down", "agent.setBlock",
+		"events.clear", "player.events.clear", "entity.events.clear");
+
+	private static final java.util.Set<String> FREEZE_FAIL = java.util.Set.of("world.spawnEntity");
+
+	private static final java.util.Set<String> FREEZE_ZERO = java.util.Set.of(
+		"world.removeEntity", "world.removeEntities", "player.removeEntities", "entity.removeEntities");
+
+	private static final java.util.Set<String> FREEZE_PROBE = java.util.Set.of("entity.setTile", "entity.setPos");
+
+	static FrozenEffect frozenEffect(String command) {
+		if (FREEZE_ALLOW.contains(command)) return FrozenEffect.ALLOW;
+		if (FREEZE_PROBE.contains(command)) return FrozenEffect.PROBE;
+		if (FREEZE_FAIL.contains(command)) return FrozenEffect.FAIL;
+		if (FREEZE_ZERO.contains(command)) return FrozenEffect.ZERO;
+		if (FREEZE_SILENT.contains(command)) return FrozenEffect.SILENT;
+		return null;
+	}
+
+	/** @return true if the handler must abort. {@code line} null stays silent. */
+	private boolean rejectFrozenBeforeHandler(String command) {
+		if (boundPlayerId == null || !plugin.isFrozen(boundPlayerId)) return false;
+		FrozenEffect effect = frozenEffect(command);
+		if (effect == null) return rejectFrozen(command, "Fail");
+		return switch (effect) {
+			case ALLOW, PROBE -> false;
+			case SILENT -> rejectFrozen(command, null);
+			case FAIL -> rejectFrozen(command, "Fail");
+			case ZERO -> rejectFrozen(command, "0");
+		};
+	}
+
+	private boolean rejectFrozen(String command, String line) {
+		if (boundPlayerId == null || !plugin.isFrozen(boundPlayerId)) return false;
+		if (!freezeWarned) {
+			freezeWarned = true;
+			plugin.getLogger().warning(command + " rejected - socket frozen for " + boundPlayerName
+				+ " from " + socket.getRemoteSocketAddress() + ".");
+		}
+		if (line != null) send(line);
+		return true;
 	}
 
 	private void warnPlotOnce(String command) {

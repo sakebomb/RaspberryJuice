@@ -13,7 +13,10 @@ All notable changes to this project are documented here. This project roughly fo
   stay silent. With `plots` on, an unbound socket also receives no move, break, place, or
   death events, even when it is the only player online. `max-chunks-per-tick` is unchanged
   and is not this wall. `sandbox-lock-world-rules`
-  (default true) rejects `world.setTime` / `world.setWeather` while the sandbox is on. (#18)
+  (default true) rejects `world.setTime` / `world.setWeather` while the sandbox is on.
+  `/rj freeze <player>` stops that online player's socket without freezing the avatar:
+  reads and polls still run, and every other command keeps its existing reply and does
+  not mutate. Freeze survives reconnect and clears on restart. (#18)
 - **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
   distinct chunk columns one session may touch in a single tick via coordinate commands
   (`getBlock`/`setBlock`/`getBlocks`/`getHeight`/`spawnEntity`/teleports/…). Already-touched
