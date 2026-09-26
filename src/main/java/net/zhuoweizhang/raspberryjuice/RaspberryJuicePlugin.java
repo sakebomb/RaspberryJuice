@@ -12,15 +12,21 @@ import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockMultiPlaceEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import org.bukkit.event.player.PlayerBucketEmptyEvent;
+import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
@@ -91,6 +97,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	private int sandboxMaxBlocks;
 	private long sandboxMaxBlocksPerTick;
 	private int sandboxMaxCommandsPerTick;
+
+	// Spawn-block origin the in-game listener subtracts. Same triple RemoteSession.tick() latches.
+	private int sandboxOriginBlockX;
+	private int sandboxOriginBlockY;
+	private int sandboxOriginBlockZ;
 
 	public LocationType getLocationType() {
 		return locationType;
@@ -296,6 +307,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			locationType = LocationType.valueOf("RELATIVE");
 		}
 		getLogger().info("Using " + locationType.name() + " locations");
+		refreshSandboxOrigin();
 
 		//get hit click type (LEFT, RIGHT or BOTH) from config.yml
 		String hitClick = this.getConfig().getString("hitclick").toUpperCase();
@@ -389,6 +401,85 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			if (allowGlobalEvents || session.isForCurrentPlayer(event.getPlayer())) {
 				session.queuePlayerMove(event.getPlayer(), event.getTo());
 			}
+		}
+	}
+
+	/**
+	 * Same switch as {@code RemoteSession.tick()}'s first origin latch. The listener subtracts
+	 * this block; each session subtracts its own origin. Restart after moving the world spawn.
+	 */
+	void refreshSandboxOrigin() {
+		if (getServer().getWorlds().isEmpty()) return;
+		World world = getServer().getWorlds().get(0);
+		org.bukkit.Location origin = locationType == LocationType.ABSOLUTE
+			? new org.bukkit.Location(world, 0, 0, 0)
+			: world.getSpawnLocation();
+		sandboxOriginBlockX = origin.getBlockX();
+		sandboxOriginBlockY = origin.getBlockY();
+		sandboxOriginBlockZ = origin.getBlockZ();
+	}
+
+	int sandboxOriginBlockX() { return sandboxOriginBlockX; }
+	int sandboxOriginBlockY() { return sandboxOriginBlockY; }
+	int sandboxOriginBlockZ() { return sandboxOriginBlockZ; }
+
+	/**
+	 * Hand edits. Own plot (including an overlap) and unassigned space are allowed.
+	 * A cell outside the actor's plot and inside someone else's is not.
+	 */
+	boolean denied(Player actor, Block block) {
+		if (!isSandboxEnabled() || actor == null || block == null) return false;
+		if (getServer().getWorlds().isEmpty()) return false;
+		if (!block.getWorld().equals(getServer().getWorlds().get(0))) return false;
+		if (actor.hasPermission("raspberryjuice.classroom.teacher")) return false;
+		int x = block.getX() - sandboxOriginBlockX;
+		int y = block.getY() - sandboxOriginBlockY;
+		int z = block.getZ() - sandboxOriginBlockZ;
+		String name = PlainText.plain(actor.playerListName());
+		PlotBounds own = plotFor(name);
+		if (own != null && own.contains(x, y, z)) return false;
+		for (PlotBounds plot : plots.byName.values()) {
+			if (plot.contains(x, y, z)) return true;
+		}
+		return false;
+	}
+
+	boolean bucketDenied(Player actor, Block clicked, BlockFace face) {
+		if (clicked == null || face == null) return false;
+		return denied(actor, clicked) || denied(actor, clicked.getRelative(face));
+	}
+
+	private boolean placeDenied(BlockPlaceEvent event) {
+		if (denied(event.getPlayer(), event.getBlock())) return true;
+		if (event instanceof BlockMultiPlaceEvent multi) {
+			for (org.bukkit.block.BlockState state : multi.getReplacedBlockStates()) {
+				if (state != null && denied(event.getPlayer(), state.getBlock())) return true;
+			}
+		}
+		return false;
+	}
+
+	@EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+	public void protectBlockBreak(BlockBreakEvent event) {
+		if (denied(event.getPlayer(), event.getBlock())) event.setCancelled(true);
+	}
+
+	@EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+	public void protectBlockPlace(BlockPlaceEvent event) {
+		if (placeDenied(event)) event.setCancelled(true);
+	}
+
+	@EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+	public void protectBucketEmpty(PlayerBucketEmptyEvent event) {
+		if (bucketDenied(event.getPlayer(), event.getBlockClicked(), event.getBlockFace())) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+	public void protectBucketFill(PlayerBucketFillEvent event) {
+		if (bucketDenied(event.getPlayer(), event.getBlockClicked(), event.getBlockFace())) {
+			event.setCancelled(true);
 		}
 	}
 

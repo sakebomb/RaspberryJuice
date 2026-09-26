@@ -53,8 +53,10 @@ a teaching/scripting bridge — but it means:
     rejected while the sandbox is on (`sandbox-lock-world-rules`, default true). A present
     `plots` value that is not a map turns the sandbox on with nobody plotted. Students must
     not be op, and `enable-op-commands` should be false — the plugin warns if it is still
-    true. The vanilla client can still break and place blocks until a later change; fluids,
-    pistons, and explosions are not stopped. Keep eight blocks between plot edges for water,
+    true. Breaking, placing, or emptying or filling a bucket on a block inside another
+    student's plot is cancelled. Gaps, the classroom shell, and a shared overlap stay
+    allowed for the students who own that overlap. Flint and steel, spawn eggs, pistons,
+    explosions, and fluid flow after a legal bucket are not stopped. Keep eight blocks between plot edges for water,
     and at least two for pistons. Overlapping plots are shared, and a later reset of either
     plot wipes the shared cells.
   - **Classroom volume and command caps** — `sandbox-max-blocks`, `sandbox-max-blocks-per-tick`,

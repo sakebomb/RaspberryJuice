@@ -279,6 +279,7 @@ public class RemoteSession {
 	/** called from the server main thread */
 	public void tick() {
 		if (origin == null) {
+			// Same origin block as RaspberryJuicePlugin.refreshSandboxOrigin(). Restart after moving spawn.
 			switch (locationType) {
 				case ABSOLUTE:
 					updateOrigin(new Location(plugin.getServer().getWorlds().get(0), 0, 0, 0));
