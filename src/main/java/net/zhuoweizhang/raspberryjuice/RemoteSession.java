@@ -1684,11 +1684,13 @@ public class RemoteSession {
 	// event handlers as a passive filter, so it never latches state. Fails CLOSED (#44): an unbound
 	// session on a multi-player server matches nobody, so it can't observe an arbitrary real player.
 	//   1. explicitly bound (setPlayer) -> match that player, independent of who else is online;
-	//   2. unbound but <=1 player online -> match (unambiguous: single-player / lone-user case);
-	//   3. unbound with several players online -> false (no silent fallback to the first-online player).
+	//   2. sandbox on and unbound -> match nobody, even if this is the only player online (#18);
+	//   3. sandbox off, unbound, <=1 player online -> match (single-player scripts keep today's feed);
+	//   4. unbound with several players online -> false (no silent fallback to the first-online player).
 	boolean isForCurrentPlayer(Player p) {
 		if (p == null) return false;
 		if (boundPlayerId != null) return boundPlayerId.equals(p.getUniqueId());
+		if (plugin.isSandboxEnabled()) return false;
 		return plugin.getServer().getOnlinePlayers().size() <= 1;
 	}
 	
