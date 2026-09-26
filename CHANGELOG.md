@@ -6,6 +6,14 @@ All notable changes to this project are documented here. This project roughly fo
 ## [Unreleased]
 
 ### Security
+- **Per-student plots** — `plots` (empty by default) confines a socket to the axis-aligned
+  plot of the player it bound with `setPlayer`. A non-empty map is fail-closed: no matching
+  plot means no coordinate read or write, and the session does not latch the host player.
+  Cross-plot `getBlocks` / `spawnEntity` return `Fail`; `setBlock`, `clone`, and teleports
+  stay silent. With `plots` on, an unbound socket also receives no move, break, place, or
+  death events, even when it is the only player online. `max-chunks-per-tick` is unchanged
+  and is not this wall. `sandbox-lock-world-rules`
+  (default true) rejects `world.setTime` / `world.setWeather` while the sandbox is on. (#18)
 - **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
   distinct chunk columns one session may touch in a single tick via coordinate commands
   (`getBlock`/`setBlock`/`getBlocks`/`getHeight`/`spawnEntity`/teleports/…). Already-touched

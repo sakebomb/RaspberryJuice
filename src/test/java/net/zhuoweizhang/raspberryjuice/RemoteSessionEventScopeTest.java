@@ -2,6 +2,7 @@ package net.zhuoweizhang.raspberryjuice;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -16,14 +17,18 @@ import java.util.List;
 import java.util.ArrayList;
 
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.damage.DamageType;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.inventory.ItemStack;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,7 +91,11 @@ class RemoteSessionEventScopeTest {
 	}
 
 	private String pollMoves(RemoteSession s) {
-		s.handleLine("events.player.moves()");
+		return poll(s, "events.player.moves()");
+	}
+
+	private String poll(RemoteSession s, String command) {
+		s.handleLine(command);
 		List<String> sent = s.drainSentForTest();
 		assertTrue(sent.size() >= 1, "expected a response");
 		return sent.get(sent.size() - 1);
@@ -107,6 +116,32 @@ class RemoteSessionEventScopeTest {
 		RemoteSession s = session();
 		PlayerMock solo = server.addPlayer("Solo");
 		assertTrue(s.isForCurrentPlayer(solo), "an unbound session must see the sole online player's events");
+	}
+
+	@Test
+	void sandboxOn_unboundSinglePlayer_receivesNoReactiveEvents() throws Exception {
+		YamlConfiguration cfg = new YamlConfiguration();
+		cfg.loadFromString("plots:\n  Alice: [0, 0, 0, 31, 15, 31]\n");
+		plugin.installPlots(PlotBounds.readPlots(cfg));
+		RemoteSession s = session();
+		PlayerMock solo = server.addPlayer("Solo");
+		plugin.sessions.add(s);
+		assertFalse(s.isForCurrentPlayer(solo));
+
+		Location from = new Location(world, 40, 64, 0);
+		Location to = new Location(world, 41, 64, 0);
+		plugin.onPlayerMove(new PlayerMoveEvent(solo, from, to));
+		Block block = world.getBlockAt(40, 64, 0);
+		plugin.onBlockBreak(new BlockBreakEvent(block, solo));
+		plugin.onBlockPlace(new BlockPlaceEvent(block, block.getState(), block,
+			new ItemStack(Material.STONE), solo, true));
+		plugin.onPlayerDeath(deathOf(solo));
+
+		assertEquals("", poll(s, "events.player.moves()"));
+		assertEquals("", poll(s, "events.block.breaks()"));
+		assertEquals("", poll(s, "events.block.places()"));
+		assertEquals("", poll(s, "events.player.deaths()"));
+		assertNull(s.attachedForTest());
 	}
 
 	@Test

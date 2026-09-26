@@ -141,7 +141,9 @@ Poll these (like the other `events.*` calls) to react to what players do - "when
 
 A per-session, code-driven **agent** (a "turtle"): drive it with relative commands to move,
 turn, and place blocks - a hands-on way to teach sequencing, loops, and functions. Movement
-is grid-aligned teleport-step. Commands before `agent.spawn` answer `Fail`.
+is grid-aligned teleport-step. Commands before `agent.spawn` answer `Fail`. While a classroom
+sandbox is on (`plots` non-empty), those fire-and-forget moves stay silent instead, so a `Fail`
+cannot desync the next query. `agent.getPos` still answers `Fail` until the agent exists.
 
  - agent.spawn() / agent.spawn(x,y,z) - create the agent at the player (or a given block); one per session
  - agent.despawn() - remove the agent
@@ -176,6 +178,8 @@ Modify config.yml:
  - allow-global-events: false - by default the reactive event streams (`events.player.moves` / `block.breaks` / `block.places` / `player.deaths`) report only the session's OWN player's activity. A connection picks its player with `setPlayer(<name>)` (`mc.set_player("Alice")`); on a multi-player server an unbound connection receives no events at all (fail closed), so no client is handed an arbitrary player's feed. Set true to instead broadcast every player's events to every socket (a live tracking feed) - only on a trusted single-user server where you want whole-world/region triggers. See [SECURITY.md](SECURITY.md).
  - auth-token: '' - optional shared secret. When set, clients must send `auth(<token>)` before any other command (`Minecraft.connect(host, port, token="…")` in the Python client). Empty = no auth. The socket is unencrypted, so tunnel the port for confidentiality - see [SECURITY.md](SECURITY.md).
  - player-tokens: - optional per-player bind secrets (a `name: secret` map). Empty (default) = `setPlayer(<name>)` binds by name, unchanged. Non-empty = **fail closed**: `setPlayer(<name>,<token>)` (Python: `mc.set_player("Alice", token="…")`) succeeds only for a listed player whose token matches, so on a multi-user server a client can bind to (and observe) only the player it holds a token for. Repeated wrong tokens close the connection. See [SECURITY.md](SECURITY.md).
+ - plots: {} - per-student build plots, six inclusive integers in the same space as `location` (`minX,minY,minZ,maxX,maxY,maxZ`), keyed by the `setPlayer` name. Empty (default) = no spatial sandbox. A non-empty map is fail-closed: the socket may read and write only inside that player's plot, and an unbound session no longer falls through to the host player. Cross-plot `getBlocks` / `spawnEntity` return `Fail`; `setBlock`, `setBlocks`, `clone`, and teleports stay silent. Overlapping plots are shared. This is not `max-chunks-per-tick` (that only rates chunk generation). Set `enable-op-commands: false` when you turn plots on. See [SECURITY.md](SECURITY.md).
+ - sandbox-lock-world-rules: true - while `plots` is on, `world.setTime` and `world.setWeather` are rejected (they change the world for every student). Ignored when `plots` is empty. Set false for a lesson about the clock or the weather.
 
 ## Libraries
 

@@ -40,7 +40,23 @@ a teaching/scripting bridge — but it means:
   - **Per-session entity ownership** — only the connection that spawned an entity may mutate it
     (move, teleport, set health/name/AI) **or remove it**; one client can't touch another's mobs,
     and `world.removeEntities(-1)` deletes only your own. Id-targeted `entity.*` mutators also
-    refuse to act on players. Reads stay open.
+    refuse to act on players. Reads stay open unless `plots` is configured (below).
+  - **Per-student plots** — `plots` (empty by default) is an opt-in classroom wall, separate
+    from `max-chunks-per-tick`. A non-empty map fail-closes the socket to the axis-aligned
+    plot of the player bound with `setPlayer`, in the same coordinate space as `location`.
+    An unbound session, or a name with no entry, cannot read or write coordinates and does
+    not latch the host player. That includes the reactive streams (`events.player.moves` /
+  `block.breaks` / `block.places` / `player.deaths`): with `plots` on, an unbound socket
+  receives none of them even when it is the only player online. Cross-plot reads (`getBlocks`, `spawnEntity`) return `Fail`;
+    fire-and-forget writes stay silent. `world.getEntities` drops rows outside the plot and
+    still sends one line of absolute coordinates. `world.setTime` / `world.setWeather` are
+    rejected while the sandbox is on (`sandbox-lock-world-rules`, default true). A present
+    `plots` value that is not a map turns the sandbox on with nobody plotted. Students must
+    not be op, and `enable-op-commands` should be false — the plugin warns if it is still
+    true. The vanilla client can still break and place blocks until a later change; fluids,
+    pistons, and explosions are not stopped. Keep eight blocks between plot edges for water,
+    and at least two for pistons. Overlapping plots are shared, and a later reset of either
+    plot wipes the shared cells.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.
@@ -51,8 +67,9 @@ a teaching/scripting bridge — but it means:
   `setPlayer(<name>)` (Python: `mc.set_player("Alice")`), and events are matched to that player
   by UUID. An **unbound** connection on a multi-player server receives **no** player's events
   at all (fail closed) — it can no longer fall back to observing an arbitrary player. The lone
-  single-player / single-user case still works without binding (there's no other player to
-  leak).
+  single-player / single-user case still works without binding when `plots` is empty (there's
+  no other player to leak). When `plots` is on, that fallback is off too: an unbound socket
+  sees no player's events until it `setPlayer`s.
 - **`setPlayer` binding can be authorized per player (`player-tokens`).** `auth-token` gates
   *who may connect*, not *which player a connection may bind to or observe*. By default
   `setPlayer(<name>)` accepts any online player's name with no ownership check, so on a server

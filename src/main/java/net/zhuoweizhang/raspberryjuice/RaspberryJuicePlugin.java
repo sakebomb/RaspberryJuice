@@ -81,6 +81,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	// fail-closed: only a listed player, with its matching token, may be bound (#47).
 	private final java.util.Map<String, String> playerTokens = new java.util.HashMap<>();
 
+	// Classroom plots (#18). off() until onEnable. An empty map is not a sandbox.
+	private PlotBounds.ParsedPlots plots = PlotBounds.ParsedPlots.off();
+
+	// While the sandbox is on, world.setTime / world.setWeather are rejected. Ignored when off.
+	private boolean sandboxLockWorldRules = true;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -119,6 +125,29 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	// return under isPlayerTokensConfigured() means "unlisted" -> not bindable (fail closed).
 	public String getPlayerToken(String name) {
 		return playerTokens.get(name);
+	}
+
+	public boolean isSandboxEnabled() {
+		return plots.enabled;
+	}
+
+	/** The bound player's plot, or null when the sandbox is off or that name has no entry. */
+	public PlotBounds plotFor(String name) {
+		if (!plots.enabled || name == null) return null;
+		return plots.byName.get(name);
+	}
+
+	public boolean locksWorldRules() {
+		return sandboxLockWorldRules;
+	}
+
+	/** Test hook. Production load is {@link #readPlots} from {@code onEnable}. */
+	void installPlots(PlotBounds.ParsedPlots parsed) {
+		plots = parsed == null ? PlotBounds.ParsedPlots.off() : parsed;
+	}
+
+	void setLockWorldRules(boolean lock) {
+		sandboxLockWorldRules = lock;
 	}
 
 	// Parse the player-tokens config section (name -> token) into a map. Null section (key absent
@@ -196,6 +225,17 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		//When set, setPlayer is fail-closed: only a listed player with its matching token binds (#47).
 		playerTokens.clear();
 		playerTokens.putAll(readPlayerTokens(this.getConfig().getConfigurationSection("player-tokens")));
+
+		plots = PlotBounds.readPlots(this.getConfig());
+		for (String warning : plots.warnings) {
+			getLogger().warning(warning);
+		}
+		sandboxLockWorldRules = this.getConfig().getBoolean("sandbox-lock-world-rules", true);
+		if (plots.enabled && opCommandsEnabled) {
+			getLogger().warning("plots is enabled while enable-op-commands is still true. "
+				+ "A classroom sandbox should set enable-op-commands: false so a socket cannot "
+				+ "self-grant creative mode or items.");
+		}
 
 		//get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();

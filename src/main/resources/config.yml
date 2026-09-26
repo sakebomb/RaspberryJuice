@@ -60,6 +60,35 @@ player-tokens: {}
 #   Alice: alice-long-random-secret
 #   Bob: bob-long-random-secret
 
+# Per-student build plots. EMPTY (default) = no spatial sandbox, same as today.
+# A non-empty map turns the sandbox ON and fail-closed: a session may read or write
+# coordinates only inside the plot of the player it bound with setPlayer. An unbound
+# session, or a bound player with no entry, cannot mutate the world or read coordinates
+# through the socket, and it no longer falls through to the host player.
+#
+# Coordinates are in the SAME space as `location` above — the numbers a client passes
+# to world.setBlock. They are NOT always F3 world coordinates.
+#   location RELATIVE (default): 0,0,0 is the world spawn BLOCK.
+#   location ABSOLUTE: the numbers are world block coordinates.
+# Each entry is six integers: minX,minY,minZ,maxX,maxY,maxZ (inclusive). Corners may
+# be listed in either order. Overlapping plots are logged; both students can write the
+# shared cells, and /rj reset of either plot (a later change) wipes those cells.
+# A gap under 2 blocks is logged as a piston warning, not a water warning. Water reaches
+# seven blocks from a source, so keep eight blocks between plot edges.
+# Player names must not contain a comma or a pipe.
+# A present value that is not a map turns the sandbox on with nobody plotted.
+# Bukkit does not add this key to an existing config.yml; paste it in.
+plots: {}
+# Example, RELATIVE to spawn. Two 32x16x32 pads with a 16-block gap along X.
+# plots:
+#   Alice: [0, 0, 0, 31, 15, 31]
+#   Bob: [48, 0, 0, 79, 15, 31]
+
+# While the sandbox is enabled, reject world.setTime and world.setWeather (they change
+# the world for every student). Ignored when plots is empty. Set false for a lesson
+# about the clock or the weather.
+sandbox-lock-world-rules: true
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.

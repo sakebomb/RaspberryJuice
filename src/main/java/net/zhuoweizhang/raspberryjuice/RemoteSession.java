@@ -124,6 +124,13 @@ public class RemoteSession {
 	// execution: only an explicit bind is trusted for scoping reactive events (see isForCurrentPlayer).
 	private java.util.UUID boundPlayerId = null;
 
+	// Plain list name from the last successful setPlayer. Null until then. A failed rebind does
+	// not clear it. Plot lookup uses this string, not Player.getName(). #18
+	private String boundPlayerName = null;
+
+	// One sandbox reject warning per connection. A client can enqueue 9000 rejects a tick. #18
+	private boolean plotWarned = false;
+
 	// the per-session programmable agent (turtle), null until agent.spawn() is called
 	private Agent agent = null;
 
@@ -512,6 +519,7 @@ public class RemoteSession {
 
 	void cmdWorldGetBlock(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectSandbox(loc, "world.getBlock", true)) return;
 		if (rejectChunk(loc, "world.getBlock", true)) return;
 		send(LegacyBlocks.legacyId(world.getBlockAt(loc)));
 	}
@@ -519,6 +527,7 @@ public class RemoteSession {
 	void cmdWorldGetBlocks(String[] args, World world, Server server) {
 		Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 		Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
+		if (rejectSandboxCuboid(loc1, loc2, "world.getBlocks", true)) return;
 		if (exceedsBlockLimit(loc1, loc2)) {
 			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
@@ -537,6 +546,7 @@ public class RemoteSession {
 
 	void cmdWorldGetBlockWithData(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectSandbox(loc, "world.getBlockWithData", true)) return;
 		if (rejectChunk(loc, "world.getBlockWithData", true)) return;
 		Block block = world.getBlockAt(loc);
 		send(LegacyBlocks.legacyId(block) + "," + LegacyBlocks.legacyData(block));
@@ -544,6 +554,7 @@ public class RemoteSession {
 
 	void cmdWorldSetBlock(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectSandbox(loc, "world.setBlock", false)) return;
 		if (rejectChunk(loc, "world.setBlock", false)) return;
 		updateBlock(world, loc, Integer.parseInt(args[3]), (args.length > 4? Byte.parseByte(args[4]) : (byte) 0));
 	}
@@ -553,6 +564,7 @@ public class RemoteSession {
 		Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 		int blockType = Integer.parseInt(args[6]);
 		byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
+		if (rejectSandboxCuboid(loc1, loc2, "world.setBlocks", false)) return;
 		if (exceedsBlockLimit(loc1, loc2)) {
 			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
 				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
@@ -606,17 +618,19 @@ public class RemoteSession {
 	}
 
 	void cmdWorldGetEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("world.getEntities", "")) return;
 		int entityType = Integer.parseInt(args[0]);
 		send(getEntities(world, entityType));
 	}
 
 	void cmdWorldRemoveEntity(String[] args, World world, Server server) {
+		if (rejectUnplotted("world.removeEntity", "0")) return;
 		int id = Integer.parseInt(args[0]);
 		int result = 0;
 		for (Entity e : world.getEntities()) {
 			if (e.getEntityId() == id)
 			{
-				if (removableEntity(e)) { e.remove(); result = 1; } // only if this session owns it
+				if (removableEntity(e) && inCurrentPlot(e)) { e.remove(); result = 1; }
 				break;
 			}
 		}
@@ -624,10 +638,12 @@ public class RemoteSession {
 	}
 
 	void cmdWorldRemoveEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("world.removeEntities", "0")) return;
 		int entityType = Integer.parseInt(args[0]);
 		int removedEntitiesCount = 0;
 		for (Entity e : world.getEntities()) {
-			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType) && removableEntity(e))
+			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
+				&& removableEntity(e) && inCurrentPlot(e))
 			{
 				e.remove();
 				removedEntitiesCount++;
@@ -672,6 +688,7 @@ public class RemoteSession {
 		setPlayerAuthFailures = 0; // a successful authorized bind clears the brute-force counter (#51)
 		attachedPlayer = target;
 		boundPlayerId = target.getUniqueId();
+		boundPlayerName = PlainText.plain(target.playerListName());
 		send("1");
 	}
 
@@ -743,21 +760,25 @@ public class RemoteSession {
 	}
 
 	void cmdPlayerEventsBlockHits(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.events.block.hits", "")) return;
 		Player currentPlayer = getCurrentPlayer();
 		send(getBlockHits(currentPlayer.getEntityId()));
 	}
 
 	void cmdPlayerEventsChatPosts(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.events.chat.posts", "")) return;
 		Player currentPlayer = getCurrentPlayer();
 		send(getChatPosts(currentPlayer.getEntityId()));
 	}
 
 	void cmdPlayerEventsProjectileHits(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.events.projectile.hits", "")) return;
 		Player currentPlayer = getCurrentPlayer();
 		send(getProjectileHits(currentPlayer.getEntityId()));
 	}
 
 	void cmdPlayerEventsClear(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.events.clear", null)) return;
 		Player currentPlayer = getCurrentPlayer();
 		clearEntityEvents(currentPlayer.getEntityId());
 	}
@@ -765,14 +786,17 @@ public class RemoteSession {
 	// ==== command handlers: player.* pose + queries ====
 
 	void cmdPlayerGetTile(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getTile", "Fail")) return;
 		send(entityGetTile(getCurrentPlayer()));
 	}
 
 	void cmdPlayerSetTile(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setTile", null)) return;
 		entitySetTile(getCurrentPlayer(), args[0], args[1], args[2]);
 	}
 
 	void cmdPlayerGetAbsPos(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getAbsPos", "Fail")) return;
 		Player currentPlayer = getCurrentPlayer();
 		//send absolute coordinates as "x,y,z" (not Location.toString())
 		Location loc = currentPlayer.getLocation();
@@ -780,6 +804,7 @@ public class RemoteSession {
 	}
 
 	void cmdPlayerSetAbsPos(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setAbsPos", null)) return;
 		String x = args[0], y = args[1], z = args[2];
 		Player currentPlayer = getCurrentPlayer();
 		//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
@@ -787,45 +812,55 @@ public class RemoteSession {
 		loc.setX(Double.parseDouble(x));
 		loc.setY(Double.parseDouble(y));
 		loc.setZ(Double.parseDouble(z));
+		if (rejectSandbox(loc, "player.setAbsPos", false)) return;
 		if (rejectChunk(loc, "player.setAbsPos", false)) return;
 		currentPlayer.teleport(loc);
 	}
 
 	void cmdPlayerGetPos(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getPos", "Fail")) return;
 		send(entityGetPos(getCurrentPlayer()));
 	}
 
 	void cmdPlayerSetPos(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setPos", null)) return;
 		entitySetPos(getCurrentPlayer(), args[0], args[1], args[2]);
 	}
 
 	void cmdPlayerSetDirection(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setDirection", null)) return;
 		entitySetDirection(getCurrentPlayer(), args[0], args[1], args[2]);
 	}
 
 	void cmdPlayerGetDirection(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getDirection", "Fail")) return;
 		send(entityGetDirection(getCurrentPlayer()));
 	}
 
 	void cmdPlayerSetRotation(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setRotation", null)) return;
 		entitySetRotation(getCurrentPlayer(), args[0]);
 	}
 
 	// player.getRotation flips a negative yaw to positive (flipYaw=true) - the sole player-vs-entity
 	// asymmetry; entity.getRotation passes false.
 	void cmdPlayerGetRotation(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getRotation", "Fail")) return;
 		send(entityGetRotation(getCurrentPlayer(), true));
 	}
 
 	void cmdPlayerSetPitch(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setPitch", null)) return;
 		entitySetPitch(getCurrentPlayer(), args[0]);
 	}
 
 	void cmdPlayerGetPitch(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getPitch", "Fail")) return;
 		send(entityGetPitch(getCurrentPlayer()));
 	}
 
 	void cmdPlayerGetEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.getEntities", "")) return;
 		Player currentPlayer = getCurrentPlayer();
 		int distance = Integer.parseInt(args[0]);
 		int entityTypeId = Integer.parseInt(args[1]);
@@ -834,6 +869,7 @@ public class RemoteSession {
 	}
 
 	void cmdPlayerRemoveEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.removeEntities", "0")) return;
 		Player currentPlayer = getCurrentPlayer();
 		int distance = Integer.parseInt(args[0]);
 		int entityType = Integer.parseInt(args[1]);
@@ -848,14 +884,15 @@ public class RemoteSession {
 
 	void cmdWorldGetHeight(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], "0", args[1]);
+		if (rejectSandboxColumn(loc, "world.getHeight", true)) return;
 		if (rejectChunk(loc, "world.getHeight", true)) return;
 		send(world.getHighestBlockYAt(loc) - origin.getBlockY());
 	}
 
 	void cmdEntityGetTile(String[] args, World world, Server server) {
 		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-		if (entity != null) send(entityGetTile(entity));
-		else entitySkipped("entity.getTile", args[0], true);
+		if (entity == null) entitySkipped("entity.getTile", args[0], true);
+		else if (!rejectSandbox(entity.getLocation(), "entity.getTile", true)) send(entityGetTile(entity));
 	}
 
 	void cmdEntitySetTile(String[] args, World world, Server server) {
@@ -866,8 +903,8 @@ public class RemoteSession {
 
 	void cmdEntityGetPos(String[] args, World world, Server server) {
 		Entity entity = plugin.getEntity(Integer.parseInt(args[0]));
-		if (entity != null) send(entityGetPos(entity));
-		else entitySkipped("entity.getPos", args[0], true);
+		if (entity == null) entitySkipped("entity.getPos", args[0], true);
+		else if (!rejectSandbox(entity.getLocation(), "entity.getPos", true)) send(entityGetPos(entity));
 	}
 
 	void cmdEntitySetPos(String[] args, World world, Server server) {
@@ -913,6 +950,7 @@ public class RemoteSession {
 	}
 
 	void cmdEntityGetEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("entity.getEntities", "")) return;
 		int entityId = Integer.parseInt(args[0]);
 		int distance = Integer.parseInt(args[1]);
 		int entityTypeId = Integer.parseInt(args[2]);
@@ -921,6 +959,7 @@ public class RemoteSession {
 	}
 
 	void cmdEntityRemoveEntities(String[] args, World world, Server server) {
+		if (rejectUnplotted("entity.removeEntities", "0")) return;
 		int entityId = Integer.parseInt(args[0]);
 		int distance = Integer.parseInt(args[1]);
 		int entityType = Integer.parseInt(args[2]);
@@ -930,6 +969,7 @@ public class RemoteSession {
 
 	void cmdWorldSetSign(String[] args, World world, Server server) {
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectSandbox(loc, "world.setSign", false)) return;
 		if (rejectChunk(loc, "world.setSign", false)) return;
 		Block thisBlock = world.getBlockAt(loc);
 		//blockType should be 68 for wall sign or 63 for standing sign
@@ -962,6 +1002,7 @@ public class RemoteSession {
 			return;
 		}
 		Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
+		if (rejectSandbox(loc, "world.spawnEntity", true)) return;
 		if (rejectChunk(loc, "world.spawnEntity", true)) return;
 		Entity entity = world.spawnEntity(loc, LegacyEntities.fromId(Integer.parseInt(args[3])));
 		ownedEntities.add(entity.getEntityId()); // this session owns what it spawns
@@ -1017,6 +1058,7 @@ public class RemoteSession {
 	// ==== command handlers: world & player control (#15) ====
 
 	void cmdWorldSetTime(String[] args, World world, Server server) {
+		if (rejectLockedRules("world.setTime")) return;
 		world.setTime(Long.parseLong(args[0]));
 	}
 
@@ -1026,6 +1068,7 @@ public class RemoteSession {
 
 	// world.setWeather(0=clear, 1=rain, 2=thunder)
 	void cmdWorldSetWeather(String[] args, World world, Server server) {
+		if (rejectLockedRules("world.setWeather")) return;
 		int w = Integer.parseInt(args[0]);
 		world.setStorm(w >= 1);
 		world.setThundering(w >= 2);
@@ -1036,6 +1079,7 @@ public class RemoteSession {
 		Location a = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 		Location b = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 		Location dest = geometry.parseRelativeBlockLocation(args[6], args[7], args[8]);
+		if (rejectClonePlots(a, b, dest)) return;
 		if (exceedsBlockLimit(a, b)) {
 			// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
 			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
@@ -1055,6 +1099,7 @@ public class RemoteSession {
 
 	// player.setGameMode(0=survival,1=creative,2=adventure,3=spectator)
 	void cmdPlayerSetGameMode(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.setGameMode", null)) return;
 		if (!plugin.isOpCommandsEnabled()) return; // gated by enable-op-commands
 		GameMode gm = gameMode(Integer.parseInt(args[0]));
 		if (gm != null) getCurrentPlayer().setGameMode(gm);
@@ -1062,6 +1107,7 @@ public class RemoteSession {
 
 	// player.give(blockId[,count]) - give the current player blocks
 	void cmdPlayerGive(String[] args, World world, Server server) {
+		if (rejectUnplotted("player.give", null)) return;
 		if (!plugin.isOpCommandsEnabled()) return; // gated by enable-op-commands
 		BlockData bd = LegacyBlocks.toBlockData(Integer.parseInt(args[0]), (byte) 0);
 		if (bd != null) {
@@ -1124,6 +1170,7 @@ public class RemoteSession {
 		Entity e = controllableEntity(args[0]);
 		if (e instanceof Mob mob) {
 			Location dest = geometry.parseRelativeLocation(args[1], args[2], args[3]);
+			if (rejectSandbox(dest, "entity.moveTo", false)) return;
 			if (rejectChunk(dest, "entity.moveTo", false)) return;
 			mob.getPathfinder().moveTo(dest);
 		} else {
@@ -1159,6 +1206,7 @@ public class RemoteSession {
 	void cmdEntitySetHealth(String[] args, World world, Server server) {
 		Entity e = controllableEntity(args[0]);
 		if (e instanceof LivingEntity le) {
+			if (rejectSandbox(le.getLocation(), "entity.setHealth", false)) return;
 			double requested = Double.parseDouble(args[1]);
 			if (!Double.isFinite(requested)) return; // ignore NaN/Infinity
 			double health = Math.max(0.0, Math.min(requested, maxHealth(le)));
@@ -1172,6 +1220,7 @@ public class RemoteSession {
 	void cmdEntitySetName(String[] args, World world, Server server) {
 		Entity e = controllableEntity(args[0]);
 		if (e != null) {
+			if (rejectSandbox(e.getLocation(), "entity.setName", false)) return;
 			e.customName(Component.text(args[1]));
 			e.setCustomNameVisible(true);
 		} else {
@@ -1183,6 +1232,7 @@ public class RemoteSession {
 	void cmdEntitySetAI(String[] args, World world, Server server) {
 		Entity e = controllableEntity(args[0]);
 		if (e instanceof LivingEntity le) {
+			if (rejectSandbox(le.getLocation(), "entity.setAI", false)) return;
 			le.setAI(args[1].equals("1") || args[1].equalsIgnoreCase("true"));
 		} else {
 			entitySkipped("entity.setAI", args[0], false);
@@ -1221,38 +1271,45 @@ public class RemoteSession {
 	void cmdAgentSpawn(String[] args, World world, Server server) {
 		int bx, by, bz;
 		float yaw;
+		Location loc;
 		if (args.length >= 3 && !args[0].isEmpty()) {
-			Location loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
-			bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+			loc = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 			yaw = 0f;
 		} else {
-			Location loc = getCurrentPlayer().getLocation();
-			bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
+			if (rejectUnplotted("agent.spawn", null)) return;
+			loc = getCurrentPlayer().getLocation();
 			yaw = loc.getYaw();
 		}
+		if (rejectSandbox(loc, "agent.spawn", false)) return;
+		bx = loc.getBlockX(); by = loc.getBlockY(); bz = loc.getBlockZ();
 		if (rejectChunk(new Location(world, bx, by, bz), "agent.spawn", false)) return;
 		if (agent != null) agent.remove();
 		agent = Agent.spawn(plugin, world, bx, by, bz, yaw);
 	}
 
 	void cmdAgentDespawn(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.despawn", null)) return;
 		if (agent != null) { agent.remove(); agent = null; }
 	}
 
 	// agent.getPos - block position, in the session's relative frame
 	void cmdAgentGetPos(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.getPos", "Fail")) return;
 		if (!requireAgent()) return;
 		send(geometry.blockLocationToRelative(new Location(world, agent.x(), agent.y(), agent.z())));
 	}
 
 	// agent.getRotation - facing as a cardinal yaw (0=S,90=W,180=N,270=E)
 	void cmdAgentGetRotation(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.getRotation", "Fail")) return;
 		if (!requireAgent()) return;
 		send(agent.facing());
 	}
 
 	// relative movement (n optional, default 1)
 	void cmdAgentForward(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.forward", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		int n = stepArg(args);
 		if (rejectAgentMove(world, s -> s.forward(n), "agent.forward")) return;
@@ -1260,6 +1317,8 @@ public class RemoteSession {
 	}
 
 	void cmdAgentBack(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.back", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		int n = stepArg(args);
 		if (rejectAgentMove(world, s -> s.back(n), "agent.back")) return;
@@ -1267,6 +1326,8 @@ public class RemoteSession {
 	}
 
 	void cmdAgentUp(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.up", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		int n = stepArg(args);
 		if (rejectAgentMove(world, s -> s.up(n), "agent.up")) return;
@@ -1274,6 +1335,8 @@ public class RemoteSession {
 	}
 
 	void cmdAgentDown(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.down", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		int n = stepArg(args);
 		if (rejectAgentMove(world, s -> s.down(n), "agent.down")) return;
@@ -1281,19 +1344,27 @@ public class RemoteSession {
 	}
 
 	void cmdAgentTurnLeft(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.turnLeft", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		agent.turnLeft();
 	}
 
 	void cmdAgentTurnRight(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.turnRight", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
 		agent.turnRight();
 	}
 
 	// agent.setBlock - place a block at the agent's position (id 0 clears to air)
 	void cmdAgentSetBlock(String[] args, World world, Server server) {
+		if (rejectUnplotted("agent.setBlock", null)) return;
+		if (sandboxedWithoutAgent()) return;
 		if (!requireAgent()) return;
-		if (rejectChunk(new Location(world, agent.x(), agent.y(), agent.z()), "agent.setBlock", false)) return;
+		Location at = new Location(world, agent.x(), agent.y(), agent.z());
+		if (rejectSandbox(at, "agent.setBlock", false)) return;
+		if (rejectChunk(at, "agent.setBlock", false)) return;
 		int id = Integer.parseInt(args[0]);
 		byte data = (args.length > 1 ? Byte.parseByte(args[1]) : (byte) 0);
 		updateBlock(world, new Location(world, agent.x(), agent.y(), agent.z()), id, data);
@@ -1403,6 +1474,22 @@ public class RemoteSession {
 			+ plugin.getMaxChunksPerTick() + ") from " + socket.getRemoteSocketAddress() + ".");
 	}
 
+	long blocksChargedForTest() {
+		return blocksUsedThisTick;
+	}
+
+	int chunksChargedForTest() {
+		return chunksTouchedThisTick.size();
+	}
+
+	Player attachedForTest() {
+		return attachedPlayer;
+	}
+
+	String boundNameForTest() {
+		return boundPlayerName;
+	}
+
 	/** @return true if the command should abort (over budget). */
 	private boolean rejectChunk(Location loc, String command, boolean reply) {
 		if (reserveLocationChunk(loc)) return false;
@@ -1421,7 +1508,100 @@ public class RemoteSession {
 	private boolean rejectAgentMove(World world, java.util.function.Consumer<AgentState> move, String command) {
 		AgentState peek = new AgentState(agent.x(), agent.y(), agent.z(), agent.facing());
 		move.accept(peek);
-		return rejectChunk(new Location(world, peek.getX(), peek.getY(), peek.getZ()), command, false);
+		Location dest = new Location(world, peek.getX(), peek.getY(), peek.getZ());
+		if (rejectSandbox(dest, command, false)) return true;
+		return rejectChunk(dest, command, false);
+	}
+
+	/** @param line null stays silent; any other value, including "", is the one line to send. */
+	private boolean rejectUnplotted(String command, String line) {
+		if (!plugin.isSandboxEnabled()) return false;
+		if (boundPlayerName != null && plugin.plotFor(boundPlayerName) != null) return false;
+		warnPlotOnce(command);
+		if (line != null) send(line);
+		return true;
+	}
+
+	/** @return true if the handler must abort. Does not throw (a throw becomes Fail for every command). */
+	private boolean rejectSandbox(Location absolute, String command, boolean reply) {
+		if (!plugin.isSandboxEnabled()) return false;
+		PlotBounds plot = plugin.plotFor(boundPlayerName);
+		if (plot != null && plot.contains(spaceX(absolute), spaceY(absolute), spaceZ(absolute))) return false;
+		warnPlotOnce(command);
+		if (reply) send("Fail");
+		return true;
+	}
+
+	private boolean rejectSandboxCuboid(Location a, Location b, String command, boolean reply) {
+		if (!plugin.isSandboxEnabled()) return false;
+		PlotBounds plot = plugin.plotFor(boundPlayerName);
+		if (plot != null && plot.containsCuboid(
+				spaceX(a), spaceY(a), spaceZ(a), spaceX(b), spaceY(b), spaceZ(b))) {
+			return false;
+		}
+		warnPlotOnce(command);
+		if (reply) send("Fail");
+		return true;
+	}
+
+	private boolean rejectSandboxColumn(Location absolute, String command, boolean reply) {
+		if (!plugin.isSandboxEnabled()) return false;
+		PlotBounds plot = plugin.plotFor(boundPlayerName);
+		if (plot != null && plot.containsColumn(spaceX(absolute), spaceZ(absolute))) return false;
+		warnPlotOnce(command);
+		if (reply) send("Fail");
+		return true;
+	}
+
+	/** Source and destination cuboids, before either chunk reserve. Silent. */
+	private boolean rejectClonePlots(Location a, Location b, Location dest) {
+		if (rejectSandboxCuboid(a, b, "world.clone", false)) return true;
+		int spanX = Math.abs(a.getBlockX() - b.getBlockX());
+		int spanY = Math.abs(a.getBlockY() - b.getBlockY());
+		int spanZ = Math.abs(a.getBlockZ() - b.getBlockZ());
+		Location far = dest.clone();
+		far.add(spanX, spanY, spanZ);
+		return rejectSandboxCuboid(dest, far, "world.clone", false);
+	}
+
+	private boolean rejectLockedRules(String command) {
+		if (!plugin.isSandboxEnabled() || !plugin.locksWorldRules()) return false;
+		warnPlotOnce(command);
+		return true;
+	}
+
+	/** Fire-and-forget agent commands must not call requireAgent while sandboxed: its Fail desyncs. */
+	private boolean sandboxedWithoutAgent() {
+		return plugin.isSandboxEnabled() && (agent == null || !agent.isValid());
+	}
+
+	private boolean inCurrentPlot(Entity entity) {
+		if (!plugin.isSandboxEnabled()) return true;
+		if (entity == null) return false;
+		PlotBounds plot = plugin.plotFor(boundPlayerName);
+		if (plot == null) return false;
+		Location loc = entity.getLocation();
+		return plot.contains(spaceX(loc), spaceY(loc), spaceZ(loc));
+	}
+
+	private int spaceX(Location absolute) {
+		return absolute.getBlockX() - origin.getBlockX();
+	}
+
+	private int spaceY(Location absolute) {
+		return absolute.getBlockY() - origin.getBlockY();
+	}
+
+	private int spaceZ(Location absolute) {
+		return absolute.getBlockZ() - origin.getBlockZ();
+	}
+
+	private void warnPlotOnce(String command) {
+		if (plotWarned) return;
+		plotWarned = true;
+		String who = boundPlayerName == null ? "unbound" : boundPlayerName;
+		plugin.getLogger().warning(command + " rejected - outside plot for " + who
+			+ " from " + socket.getRemoteSocketAddress() + ".");
 	}
 
 	// create a cuboid of lots of blocks
@@ -1504,11 +1684,13 @@ public class RemoteSession {
 	// event handlers as a passive filter, so it never latches state. Fails CLOSED (#44): an unbound
 	// session on a multi-player server matches nobody, so it can't observe an arbitrary real player.
 	//   1. explicitly bound (setPlayer) -> match that player, independent of who else is online;
-	//   2. unbound but <=1 player online -> match (unambiguous: single-player / lone-user case);
-	//   3. unbound with several players online -> false (no silent fallback to the first-online player).
+	//   2. sandbox on and unbound -> match nobody, even if this is the only player online (#18);
+	//   3. sandbox off, unbound, <=1 player online -> match (single-player scripts keep today's feed);
+	//   4. unbound with several players online -> false (no silent fallback to the first-online player).
 	boolean isForCurrentPlayer(Player p) {
 		if (p == null) return false;
 		if (boundPlayerId != null) return boundPlayerId.equals(p.getUniqueId());
+		if (plugin.isSandboxEnabled()) return false;
 		return plugin.getServer().getOnlinePlayers().size() <= 1;
 	}
 	
@@ -1541,6 +1723,7 @@ public class RemoteSession {
 		Location loc = target.getLocation();
 		// keep current pitch/yaw so teleporting only moves the target
 		Location dest = geometry.parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw());
+		if (rejectSandbox(dest, "setPos", false)) return;
 		if (rejectChunk(dest, "setPos", false)) return;
 		target.teleport(dest);
 	}
@@ -1552,6 +1735,7 @@ public class RemoteSession {
 	private void entitySetTile(Entity target, String x, String y, String z) {
 		Location loc = target.getLocation();
 		Location dest = geometry.parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw());
+		if (rejectSandbox(dest, "setTile", false)) return;
 		if (rejectChunk(dest, "setTile", false)) return;
 		target.teleport(dest);
 	}
@@ -1599,7 +1783,7 @@ public class RemoteSession {
 		StringBuilder bdr = new StringBuilder();				
 		for (Entity e : world.getEntities()) {
 			if (((entityType == -1 && LegacyEntities.typeId(e.getType()) >= 0) || LegacyEntities.typeId(e.getType()) == entityType) && 
-				e.getType().isSpawnable()) {
+				e.getType().isSpawnable() && inCurrentPlot(e)) {
 				bdr.append(getEntityMsg(e));
 			}
 		}
@@ -1611,7 +1795,7 @@ public class RemoteSession {
 		StringBuilder bdr = new StringBuilder();
 		for (Entity e : world.getEntities()) {
 			if (((entityType == -1 && LegacyEntities.typeId(e.getType()) >= 0) || LegacyEntities.typeId(e.getType()) == entityType) && 
-				e.getType().isSpawnable() && 
+				e.getType().isSpawnable() && inCurrentPlot(e) &&
 				RelativeGeometry.getDistance(playerEntity, e) <= distance) {
 				bdr.append(getEntityMsg(e));
 			}
@@ -1642,7 +1826,7 @@ public class RemoteSession {
 		for (Entity e : world.getEntities()) {
 			if ((entityType == -1 || LegacyEntities.typeId(e.getType()) == entityType)
 				&& RelativeGeometry.getDistance(playerEntityId, e) <= distance
-				&& removableEntity(e)) // only entities this session owns, never players
+				&& removableEntity(e) && inCurrentPlot(e)) // only entities this session owns, never players
 			{
 				e.remove();
 				removedEntitiesCount++;
