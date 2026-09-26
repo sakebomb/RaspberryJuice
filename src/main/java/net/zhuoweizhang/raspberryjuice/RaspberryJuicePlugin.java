@@ -87,6 +87,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	// While the sandbox is on, world.setTime / world.setWeather are rejected. Ignored when off.
 	private boolean sandboxLockWorldRules = true;
 
+	// Tighter cuboid and command caps used only while the sandbox is on. 0 = no extra cap. #18
+	private int sandboxMaxBlocks;
+	private long sandboxMaxBlocksPerTick;
+	private int sandboxMaxCommandsPerTick;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -139,6 +144,45 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public boolean locksWorldRules() {
 		return sandboxLockWorldRules;
+	}
+
+	public int getSandboxMaxBlocks() {
+		return sandboxMaxBlocks;
+	}
+
+	public long getSandboxMaxBlocksPerTick() {
+		return sandboxMaxBlocksPerTick;
+	}
+
+	/** Commands-per-tick replacement. 0 keeps the built-in 9000. Read when the session is built. */
+	public int getSandboxMaxCommandsPerTick() {
+		return sandboxMaxCommandsPerTick;
+	}
+
+	/**
+	 * Tighter of {@code global} and {@code extra} while the sandbox is on.
+	 * A non-positive side is unlimited. Sandbox off ignores {@code extra}.
+	 */
+	static int effectiveCap(int global, int extra, boolean sandboxOn) {
+		if (!sandboxOn || extra <= 0) return global;
+		if (global <= 0) return extra;
+		return Math.min(global, extra);
+	}
+
+	static long effectiveCap(long global, long extra, boolean sandboxOn) {
+		if (!sandboxOn || extra <= 0) return global;
+		if (global <= 0) return extra;
+		return Math.min(global, extra);
+	}
+
+	/** Negative classroom caps become 0 (no extra cap) and emit one warning. */
+	static long normalizeSandboxCap(String key, long value, java.util.function.Consumer<String> warn) {
+		if (value < 0) {
+			warn.accept(key + " is negative (" + value
+				+ "); treating as 0 (no extra cap). Use 0 to disable the cap, not a negative.");
+			return 0;
+		}
+		return value;
 	}
 
 	/** Test hook. Production load is {@link #readPlots} from {@code onEnable}. */
@@ -231,6 +275,12 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			getLogger().warning(warning);
 		}
 		sandboxLockWorldRules = this.getConfig().getBoolean("sandbox-lock-world-rules", true);
+		sandboxMaxBlocks = (int) normalizeSandboxCap("sandbox-max-blocks",
+			this.getConfig().getInt("sandbox-max-blocks", 0), getLogger()::warning);
+		sandboxMaxBlocksPerTick = normalizeSandboxCap("sandbox-max-blocks-per-tick",
+			this.getConfig().getLong("sandbox-max-blocks-per-tick", 0L), getLogger()::warning);
+		sandboxMaxCommandsPerTick = (int) normalizeSandboxCap("sandbox-max-commands-per-tick",
+			this.getConfig().getInt("sandbox-max-commands-per-tick", 0), getLogger()::warning);
 		if (plots.enabled && opCommandsEnabled) {
 			getLogger().warning("plots is enabled while enable-op-commands is still true. "
 				+ "A classroom sandbox should set enable-op-commands: false so a socket cannot "
@@ -406,6 +456,19 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	/** Visible for tests: override the per-tick chunk budget without reloading config. */
 	void setMaxChunksPerTick(int n) {
 		maxChunksPerTick = n;
+	}
+
+	/** Visible for tests: override the classroom cuboid caps without reloading config. */
+	void setSandboxMaxBlocks(int n) {
+		sandboxMaxBlocks = n;
+	}
+
+	void setSandboxMaxBlocksPerTick(long n) {
+		sandboxMaxBlocksPerTick = n;
+	}
+
+	void setSandboxMaxCommandsPerTick(int n) {
+		sandboxMaxCommandsPerTick = n;
 	}
 
 	/** The IP portion of a socket address for rate-limiting (falls back to the full string). */

@@ -57,6 +57,14 @@ a teaching/scripting bridge — but it means:
     pistons, and explosions are not stopped. Keep eight blocks between plot edges for water,
     and at least two for pistons. Overlapping plots are shared, and a later reset of either
     plot wipes the shared cells.
+  - **Classroom volume and command caps** — `sandbox-max-blocks`, `sandbox-max-blocks-per-tick`,
+    and `sandbox-max-commands-per-tick` (all default 0) apply only while `plots` is on. Each is a
+    tighter cap on top of `max-blocks`, `max-blocks-per-tick`, and the built-in 9000 commands per
+    tick. 0 means no extra cap; a negative value is treated as 0. A reject that only the sandbox
+    cap causes is logged once per session and does not repeat the per-request `max-blocks`
+    warning. `getBlocks` still returns `Fail`; `setBlocks` and `clone` stay silent. The command
+    cap is read when the socket connects, and the deferral line prints that number (`Over 500
+    commands` when the cap is 500). With the sandbox off, these keys do nothing.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.
