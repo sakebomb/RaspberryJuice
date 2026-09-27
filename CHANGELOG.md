@@ -16,7 +16,11 @@ All notable changes to this project are documented here. This project roughly fo
   (default true) rejects `world.setTime` / `world.setWeather` while the sandbox is on.
   `/rj freeze <player>` stops that online player's socket without freezing the avatar:
   reads and polls still run, and every other command keeps its existing reply and does
-  not mutate. Freeze survives reconnect and clears on restart. (#18)
+  not mutate. Freeze survives reconnect and clears on restart. `/rj reset <player>`
+  sets that plot to air (including a shared overlap), removes non-player entities inside
+  it, and discards that student's agent without refunding the entity cap. A plot over
+  100000 blocks, or a tighter positive block cap, is refused with no changes. There is
+  no undo. (#18)
 - **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
   distinct chunk columns one session may touch in a single tick via coordinate commands
   (`getBlock`/`setBlock`/`getBlocks`/`getHeight`/`spawnEntity`/teleports/…). Already-touched

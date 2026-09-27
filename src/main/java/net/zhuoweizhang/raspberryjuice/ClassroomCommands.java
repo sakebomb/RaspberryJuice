@@ -6,8 +6,8 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 /**
- * {@code /rj freeze} and {@code /rj unfreeze}. The permission in {@code plugin.yml} is checked
- * again here so a mis-registered command cannot skip it. Reset arrives in a later change.
+ * {@code /rj freeze}, {@code /rj unfreeze}, and {@code /rj reset}. The permission in
+ * {@code plugin.yml} is checked again here so a mis-registered command cannot skip it.
  */
 final class ClassroomCommands implements CommandExecutor {
 
@@ -25,23 +25,39 @@ final class ClassroomCommands implements CommandExecutor {
 			sender.sendMessage(PlainText.component("You do not have permission to use this command."));
 			return true;
 		}
-		if (args.length != 2 || (!args[0].equals("freeze") && !args[0].equals("unfreeze"))) {
-			sender.sendMessage(PlainText.component("Usage: /rj <freeze|unfreeze> <player>"));
+		if (args.length != 2) {
+			usage(sender);
 			return true;
 		}
-		Player target = plugin.getNamedPlayer(args[1]);
+		switch (args[0]) {
+			case "freeze" -> setFrozen(sender, args[1], true);
+			case "unfreeze" -> setFrozen(sender, args[1], false);
+			case "reset" -> PlotReset.run(plugin, sender, args[1]);
+			default -> usage(sender);
+		}
+		return true;
+	}
+
+	private void setFrozen(CommandSender sender, String name, boolean freeze) {
+		Player target = plugin.getNamedPlayer(name);
 		if (target == null) {
-			sender.sendMessage(PlainText.component("No online player named " + args[1] + "."));
-			return true;
+			sender.sendMessage(PlainText.component("No online player named " + name + "."));
+			return;
 		}
 		String who = PlainText.plain(target.playerListName());
-		if (args[0].equals("freeze")) {
+		if (freeze) {
 			plugin.freeze(target.getUniqueId());
 			sender.sendMessage(PlainText.component("Froze " + who + "'s socket."));
 		} else {
 			plugin.unfreeze(target.getUniqueId());
 			sender.sendMessage(PlainText.component("Unfroze " + who + "'s socket."));
 		}
-		return true;
+	}
+
+	private static void usage(CommandSender sender) {
+		sender.sendMessage(PlainText.component(
+			"Usage: /rj <freeze|unfreeze|reset> <player>. One name per call. "
+			+ "Reset sets that plot to air, including any overlap, and is permanent. "
+			+ "It does not refund the entity cap. A reset over the size ceiling changes nothing."));
 	}
 }

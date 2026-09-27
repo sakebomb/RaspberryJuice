@@ -8,8 +8,8 @@ load: POSTWORLD
 version: '2.1.0'
 commands:
   rj:
-    description: Freeze or unfreeze a student's socket. The player can still walk and build by hand.
-    usage: /rj <freeze|unfreeze> <player>
+    description: Freeze, unfreeze, or reset a student's plot. Reset sets the plot to air, including any overlap. There is no undo.
+    usage: /rj <freeze|unfreeze|reset> <player>
     permission: raspberryjuice.classroom.teacher
 permissions:
   raspberryjuice.classroom.teacher:

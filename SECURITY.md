@@ -57,7 +57,7 @@ a teaching/scripting bridge — but it means:
     student's plot is cancelled. Gaps, the classroom shell, and a shared overlap stay
     allowed for the students who own that overlap. Flint and steel, spawn eggs, pistons,
     explosions, and fluid flow after a legal bucket are not stopped. Keep eight blocks between plot edges for water,
-    and at least two for pistons. Overlapping plots are shared, and a later reset of either
+    and at least two for pistons. Overlapping plots are shared, and `/rj reset` of either
     plot wipes the shared cells.
   - **Classroom volume and command caps** — `sandbox-max-blocks`, `sandbox-max-blocks-per-tick`,
     and `sandbox-max-commands-per-tick` (all default 0) apply only while `plots` is on. Each is a
@@ -75,6 +75,12 @@ a teaching/scripting bridge — but it means:
     does not drain the queue. The player can still walk and break or place blocks by hand.
     A new connection that `setPlayer`s the same player is still frozen. Restart clears the
     freeze. An unknown or offline name is a one-line denial and changes nothing.
+  - **Plot reset** — `/rj reset <player>` (same permission; console is allowed) sets that
+    configured plot to air, including any overlap, and removes non-player entities in that
+    cuboid. The student does not have to be online. The bound session's agent is discarded
+    and `max-entities-per-session` is not refunded. A plot over 100000 blocks, or over a
+    tighter positive `max-blocks` or `sandbox-max-blocks`, is refused and changes nothing.
+    There is no undo. Back up the world before the first reset.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.
