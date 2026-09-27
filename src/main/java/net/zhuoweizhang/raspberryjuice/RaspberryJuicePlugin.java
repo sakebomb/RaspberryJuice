@@ -2,8 +2,10 @@ package net.zhuoweizhang.raspberryjuice;
 
 import java.net.InetSocketAddress;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.bukkit.Bukkit;
@@ -103,6 +105,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	private int sandboxOriginBlockY;
 	private int sandboxOriginBlockZ;
 
+	// Players whose socket is frozen. Main-thread only. Restart clears it. #18
+	private final Set<UUID> frozenPlayers = new HashSet<>();
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -194,6 +199,22 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			return 0;
 		}
 		return value;
+	}
+
+	boolean isFrozen(UUID playerId) {
+		return playerId != null && frozenPlayers.contains(playerId);
+	}
+
+	void freeze(UUID playerId) {
+		if (playerId != null) frozenPlayers.add(playerId);
+	}
+
+	void unfreeze(UUID playerId) {
+		if (playerId != null) frozenPlayers.remove(playerId);
+	}
+
+	void clearFrozen() {
+		frozenPlayers.clear();
 	}
 
 	/** Test hook. Production load is {@link #readPlots} from {@code onEnable}. */
@@ -321,6 +342,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//setup session list (copy-on-write so async event handlers can iterate it safely)
 		sessions = new CopyOnWriteArrayList<RemoteSession>();
+		if (getCommand("rj") != null) {
+			getCommand("rj").setExecutor(new ClassroomCommands(this));
+		} else {
+			getLogger().warning("plugin.yml is missing the rj command; /rj freeze is unavailable.");
+		}
 		
 		//create new tcp listener thread
 		try {

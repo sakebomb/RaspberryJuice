@@ -67,6 +67,14 @@ a teaching/scripting bridge — but it means:
     warning. `getBlocks` still returns `Fail`; `setBlocks` and `clone` stay silent. The command
     cap is read when the socket connects, and the deferral line prints that number (`Over 500
     commands` when the cap is 500). With the sandbox off, these keys do nothing.
+  - **Socket freeze** — `/rj freeze <player>` (`raspberryjuice.classroom.teacher`, default op;
+    console is allowed) stops that online player's socket. Reads, event polls, and
+    `agent.turnLeft` / `agent.turnRight` still run. Every other command keeps the reply it
+    already uses and does not mutate: `spawnEntity` returns `Fail`, `removeEntity` returns
+    `0` and leaves the entity, and `setHealth` and `agent.despawn` stay silent. `events.clear`
+    does not drain the queue. The player can still walk and break or place blocks by hand.
+    A new connection that `setPlayer`s the same player is still frozen. Restart clears the
+    freeze. An unknown or offline name is a one-line denial and changes nothing.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.

@@ -6,6 +6,11 @@ main: net.zhuoweizhang.raspberryjuice.RaspberryJuicePlugin
 name: RaspberryJuice
 load: POSTWORLD
 version: '2.1.0'
+commands:
+  rj:
+    description: Freeze or unfreeze a student's socket. The player can still walk and build by hand.
+    usage: /rj <freeze|unfreeze> <player>
+    permission: raspberryjuice.classroom.teacher
 permissions:
   raspberryjuice.classroom.teacher:
     description: Build inside any student plot, and use /rj freeze, unfreeze, and reset

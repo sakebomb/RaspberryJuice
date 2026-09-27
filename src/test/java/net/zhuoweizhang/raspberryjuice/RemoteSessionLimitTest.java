@@ -121,16 +121,27 @@ class RemoteSessionLimitTest {
 		Socket socket = mock(Socket.class);
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
-		RemoteSession off = new RemoteSession(plugin, socket);
+		// A live session starts threads that call getLogger. A later when().thenReturn
+		// can record that call and stub getLogger to return the int. Keep them quiet.
+		RemoteSession off = new QuietSession(plugin, socket);
 		assertEquals(9000, off.maxCommandsPerTickForTest());
 
 		when(plugin.isSandboxEnabled()).thenReturn(true);
-		RemoteSession on = new RemoteSession(plugin, socket);
+		RemoteSession on = new QuietSession(plugin, socket);
 		assertEquals(2, on.maxCommandsPerTickForTest());
 
 		when(plugin.getSandboxMaxCommandsPerTick()).thenReturn(0);
-		RemoteSession unlimited = new RemoteSession(plugin, socket);
+		RemoteSession unlimited = new QuietSession(plugin, socket);
 		assertEquals(9000, unlimited.maxCommandsPerTickForTest());
+	}
+
+	/** No IO threads, so stubbing the shared plugin mock cannot race getLogger. */
+	private static final class QuietSession extends RemoteSession {
+		QuietSession(RaspberryJuicePlugin plugin, Socket socket) throws Exception {
+			super(plugin, socket);
+		}
+		@Override
+		protected void startThreads() { }
 	}
 
 	@Test
