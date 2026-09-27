@@ -89,6 +89,25 @@ plots: {}
 # about the clock or the weather.
 sandbox-lock-world-rules: true
 
+# Tighter single-cuboid cap used ONLY while the sandbox is enabled, as
+# min(max-blocks, this) when both are > 0. 0 = no extra cap (max-blocks alone).
+# Ignored when the sandbox is off. A negative value is treated as 0.
+sandbox-max-blocks: 0
+
+# Tighter per-tick cuboid budget while the sandbox is enabled. 0 = no extra cap
+# (max-blocks-per-tick alone). A class of 30 should set this well under the
+# 10000000 default, e.g. 20000, about one 32x16x32 refill per student per tick.
+# Ignored when the sandbox is off. A negative value is treated as 0.
+sandbox-max-blocks-per-tick: 0
+
+# Commands drained per tick per session while the sandbox is enabled.
+# 0 = keep the built-in 9000. Thirty sessions times 9000 is 270000 main-thread
+# commands a tick. 500 -> 15000, which a class can actually survive.
+# Read when the socket connects. The deferral warning prints this value
+# ("Over " + the cap), so 500 logs "Over 500 commands", not the literal 9000.
+# Ignored when the sandbox is off. A negative value is treated as 0.
+sandbox-max-commands-per-tick: 0
+
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs
 # on the main server thread). Oversized requests are rejected with "Fail". 0 disables the cap.

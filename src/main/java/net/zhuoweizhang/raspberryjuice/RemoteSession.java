@@ -131,6 +131,9 @@ public class RemoteSession {
 	// One sandbox reject warning per connection. A client can enqueue 9000 rejects a tick. #18
 	private boolean plotWarned = false;
 
+	// One sandbox-cap reject warning per connection. Distinct from the per-request max-blocks warning. #18
+	private boolean capWarned = false;
+
 	// the per-session programmable agent (turtle), null until agent.spawn() is called
 	private Agent agent = null;
 
@@ -183,6 +186,10 @@ public class RemoteSession {
 		this.socket = socket;
 		this.plugin = plugin;
 		this.locationType = plugin.getLocationType();
+		int sandboxCommands = plugin.getSandboxMaxCommandsPerTick();
+		if (plugin.isSandboxEnabled() && sandboxCommands > 0) {
+			this.maxCommandsPerTick = sandboxCommands;
+		}
 		String token = plugin.getAuthToken();
 		this.authenticated = (token == null || token.isEmpty()); // require auth only if a token is configured
 		init();
@@ -528,20 +535,10 @@ public class RemoteSession {
 		Location loc1 = geometry.parseRelativeBlockLocation(args[0], args[1], args[2]);
 		Location loc2 = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 		if (rejectSandboxCuboid(loc1, loc2, "world.getBlocks", true)) return;
-		if (exceedsBlockLimit(loc1, loc2)) {
-			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-			send("Fail");
-		} else if (rejectCuboidChunks(loc1, loc2, "world.getBlocks", true)) {
-			// Fail already sent
-		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
-			plugin.getLogger().warning("world.getBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-				+ plugin.getMaxBlocksPerTick() + "); rejected.");
-			send("Fail");
-		} else {
-			send(getBlocks(loc1, loc2));
-		}
+		if (rejectBlockLimit(loc1, loc2, "world.getBlocks", true)) return;
+		if (rejectCuboidChunks(loc1, loc2, "world.getBlocks", true)) return;
+		if (rejectBlockBudget(RelativeGeometry.blockVolume(loc1, loc2), "world.getBlocks", true)) return;
+		send(getBlocks(loc1, loc2));
 	}
 
 	void cmdWorldGetBlockWithData(String[] args, World world, Server server) {
@@ -565,18 +562,10 @@ public class RemoteSession {
 		int blockType = Integer.parseInt(args[6]);
 		byte data = args.length > 7? Byte.parseByte(args[7]) : (byte) 0;
 		if (rejectSandboxCuboid(loc1, loc2, "world.setBlocks", false)) return;
-		if (exceedsBlockLimit(loc1, loc2)) {
-			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-		} else if (rejectCuboidChunks(loc1, loc2, "world.setBlocks", false)) {
-			// silent: setBlocks is fire-and-forget
-		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(loc1, loc2))) {
-			plugin.getLogger().warning("world.setBlocks request of " + RelativeGeometry.blockVolume(loc1, loc2)
-				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-				+ plugin.getMaxBlocksPerTick() + "); rejected.");
-		} else {
-			setCuboid(loc1, loc2, blockType, data);
-		}
+		if (rejectBlockLimit(loc1, loc2, "world.setBlocks", false)) return;
+		if (rejectCuboidChunks(loc1, loc2, "world.setBlocks", false)) return;
+		if (rejectBlockBudget(RelativeGeometry.blockVolume(loc1, loc2), "world.setBlocks", false)) return;
+		setCuboid(loc1, loc2, blockType, data);
 	}
 
 	void cmdWorldGetPlayerIds(String[] args, World world, Server server) {
@@ -1080,18 +1069,12 @@ public class RemoteSession {
 		Location b = geometry.parseRelativeBlockLocation(args[3], args[4], args[5]);
 		Location dest = geometry.parseRelativeBlockLocation(args[6], args[7], args[8]);
 		if (rejectClonePlots(a, b, dest)) return;
-		if (exceedsBlockLimit(a, b)) {
-			// silent like world.setBlocks - clone is fire-and-forget, a stray "Fail" would desync the client
-			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
-				+ " blocks exceeds max-blocks (" + plugin.getMaxBlocks() + "); rejected.");
-		} else if (!reserveCloneChunks(a, b, dest)) {
+		if (rejectBlockLimit(a, b, "world.clone", false)) return;
+		if (!reserveCloneChunks(a, b, dest)) {
 			warnChunkBudgetOnce("world.clone");
-		} else if (!reserveBlockBudget(RelativeGeometry.blockVolume(a, b))) {
+		} else if (rejectBlockBudget(RelativeGeometry.blockVolume(a, b), "world.clone", false)) {
 			// reserve before cloneRegion allocates its snapshot arrays, so a flood of clones -
-			// or a huge clone under max-blocks=0 - can't OOM the tick
-			plugin.getLogger().warning("world.clone of " + RelativeGeometry.blockVolume(a, b)
-				+ " blocks exceeds the per-tick budget (max-blocks-per-tick="
-				+ plugin.getMaxBlocksPerTick() + "); rejected.");
+			// or a huge clone under max-blocks=0 - can't OOM the tick. Silent: clone is fire-and-forget.
 		} else {
 			cloneRegion(world, a, b, dest);
 		}
@@ -1386,25 +1369,94 @@ public class RemoteSession {
 		return 1;
 	}
 
-	// true if the cuboid is larger than the configured max-blocks limit (0 = unlimited)
+	// true if the cuboid is larger than the effective max-blocks limit (0 = unlimited).
+	// While the sandbox is on, a positive sandbox-max-blocks tightens the global cap.
 	boolean exceedsBlockLimit(Location p1, Location p2) {
-		int max = plugin.getMaxBlocks();
+		int max = RaspberryJuicePlugin.effectiveCap(
+			plugin.getMaxBlocks(), plugin.getSandboxMaxBlocks(), plugin.isSandboxEnabled());
 		return max > 0 && RelativeGeometry.blockVolume(p1, p2) > max;
 	}
 
 	// Charge `volume` blocks against this tick's cumulative cuboid budget. Returns true and
-	// records the spend if it fits; returns false (spending nothing) if it would exceed
-	// max-blocks-per-tick. This bounds a flood of individually-legal cuboid ops in one tick,
-	// and - because callers reserve BEFORE allocating/iterating - also caps clone's snapshot
-	// allocation even when max-blocks is 0 (unlimited). 0 = unlimited per-tick budget.
+	// records the spend if it fits; returns false (spending nothing) if it would exceed the
+	// effective per-tick cap (max-blocks-per-tick, tightened by sandbox-max-blocks-per-tick
+	// while the sandbox is on). Callers reserve BEFORE allocating/iterating, so this also caps
+	// clone's snapshot allocation even when max-blocks is 0 (unlimited). 0 = unlimited.
 	boolean reserveBlockBudget(long volume) {
-		long cap = plugin.getMaxBlocksPerTick();
+		long cap = RaspberryJuicePlugin.effectiveCap(
+			plugin.getMaxBlocksPerTick(), plugin.getSandboxMaxBlocksPerTick(), plugin.isSandboxEnabled());
 		if (cap <= 0) return true; // per-tick budget disabled
 		// blocksUsedThisTick never exceeds cap, and volume is saturated to Long.MAX_VALUE, so
 		// compare via subtraction to avoid overflow in blocksUsedThisTick + volume.
 		if (volume > cap - blocksUsedThisTick) return false;
 		blocksUsedThisTick += volume;
 		return true;
+	}
+
+	/**
+	 * @param reply request-response commands send {@code Fail}. Fire-and-forget
+	 *        ({@code setBlocks}, {@code clone}) must stay silent or the client desyncs.
+	 * @return true if the handler must abort. A sandbox-only reject logs once and does not
+	 *         use the per-request max-blocks warning.
+	 */
+	private boolean rejectBlockLimit(Location a, Location b, String command, boolean reply) {
+		long volume = RelativeGeometry.blockVolume(a, b);
+		int global = plugin.getMaxBlocks();
+		int effective = RaspberryJuicePlugin.effectiveCap(
+			global, plugin.getSandboxMaxBlocks(), plugin.isSandboxEnabled());
+		if (effective <= 0 || volume <= effective) return false;
+		if (global > 0 && volume > global) {
+			plugin.getLogger().warning(blockLimitWarning(command, volume, global));
+		} else {
+			warnSandboxCapOnce(command);
+		}
+		if (reply) send("Fail");
+		return true;
+	}
+
+	/**
+	 * @param reply same line discipline as {@link #rejectBlockLimit}.
+	 * @return true if the handler must abort. Charges the budget when the volume fits.
+	 */
+	private boolean rejectBlockBudget(long volume, String command, boolean reply) {
+		long global = plugin.getMaxBlocksPerTick();
+		boolean globalFits = fitsCap(global, volume);
+		if (reserveBlockBudget(volume)) return false;
+		if (globalFits) {
+			warnSandboxCapOnce(command);
+		} else {
+			plugin.getLogger().warning(blockBudgetWarning(command, volume, global));
+		}
+		if (reply) send("Fail");
+		return true;
+	}
+
+	private boolean fitsCap(long cap, long volume) {
+		if (cap <= 0) return true;
+		return volume <= cap - blocksUsedThisTick;
+	}
+
+	private static String blockLimitWarning(String command, long volume, int global) {
+		if ("world.clone".equals(command)) {
+			return "world.clone of " + volume + " blocks exceeds max-blocks (" + global + "); rejected.";
+		}
+		return command + " request of " + volume + " blocks exceeds max-blocks (" + global + "); rejected.";
+	}
+
+	private static String blockBudgetWarning(String command, long volume, long global) {
+		if ("world.clone".equals(command)) {
+			return "world.clone of " + volume
+				+ " blocks exceeds the per-tick budget (max-blocks-per-tick=" + global + "); rejected.";
+		}
+		return command + " request of " + volume
+			+ " blocks exceeds the per-tick budget (max-blocks-per-tick=" + global + "); rejected.";
+	}
+
+	private void warnSandboxCapOnce(String command) {
+		if (capWarned) return;
+		capWarned = true;
+		plugin.getLogger().warning(command + " rejected - sandbox cap from "
+			+ socket.getRemoteSocketAddress() + ".");
 	}
 
 	// Charge one chunk column against this tick's distinct-chunk budget. Returns true if the
@@ -1480,6 +1532,10 @@ public class RemoteSession {
 
 	int chunksChargedForTest() {
 		return chunksTouchedThisTick.size();
+	}
+
+	int maxCommandsPerTickForTest() {
+		return maxCommandsPerTick;
 	}
 
 	Player attachedForTest() {

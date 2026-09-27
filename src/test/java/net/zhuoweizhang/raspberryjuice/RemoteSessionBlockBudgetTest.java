@@ -68,6 +68,30 @@ class RemoteSessionBlockBudgetTest {
 	}
 
 	@Test
+	void reserve_sandboxPerTickCapTightensOnlyWhileEnabled() throws Exception {
+		RaspberryJuicePlugin plugin = mock(RaspberryJuicePlugin.class);
+		when(plugin.getLocationType()).thenReturn(LocationType.ABSOLUTE);
+		when(plugin.getLogger()).thenReturn(Logger.getLogger("raspberryjuice-test"));
+		when(plugin.getMaxBlocksPerTick()).thenReturn(10_000_000L);
+		when(plugin.getSandboxMaxBlocksPerTick()).thenReturn(100L);
+		when(plugin.isSandboxEnabled()).thenReturn(false);
+
+		Socket socket = mock(Socket.class);
+		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
+		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
+		RemoteSession off = new RemoteSession(plugin, socket);
+		off.setOrigin(new Location(mock(World.class), 0, 0, 0));
+		assertTrue(off.reserveBlockBudget(101), "sandbox knob is ignored while the sandbox is off");
+
+		when(plugin.isSandboxEnabled()).thenReturn(true);
+		RemoteSession on = new RemoteSession(plugin, socket);
+		on.setOrigin(new Location(mock(World.class), 0, 0, 0));
+		assertTrue(on.reserveBlockBudget(60));
+		assertFalse(on.reserveBlockBudget(60), "120 would pass the global budget and fail the sandbox cap");
+		assertTrue(on.blocksChargedForTest() == 60, "the rejected reserve must not be charged");
+	}
+
+	@Test
 	void reserve_doesNotOverflow_onSaturatedVolume() throws Exception {
 		// blockVolume saturates to Long.MAX_VALUE on overflow; a naive used+volume would wrap
 		// negative and wrongly pass. The subtraction-based check must reject it.
