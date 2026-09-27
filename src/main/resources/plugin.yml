@@ -6,3 +6,7 @@ main: net.zhuoweizhang.raspberryjuice.RaspberryJuicePlugin
 name: RaspberryJuice
 load: POSTWORLD
 version: '2.1.0'
+permissions:
+  raspberryjuice.classroom.teacher:
+    description: Build inside any student plot, and use /rj freeze, unfreeze, and reset
+    default: op
