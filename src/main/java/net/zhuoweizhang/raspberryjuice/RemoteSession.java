@@ -1284,6 +1284,22 @@ public class RemoteSession {
 		if (agent != null) { agent.remove(); agent = null; }
 	}
 
+	/** Drop the agent marker for {@code /rj reset}. Does not refund the spawn quota. */
+	void discardAgentForReset() {
+		if (agent != null) {
+			agent.remove();
+			agent = null;
+		}
+	}
+
+	boolean isBoundTo(String name) {
+		return name != null && name.equals(boundPlayerName);
+	}
+
+	boolean hasLiveAgentForTest() {
+		return agent != null && agent.isValid();
+	}
+
 	// agent.getPos - block position, in the session's relative frame
 	void cmdAgentGetPos(String[] args, World world, Server server) {
 		if (rejectUnplotted("agent.getPos", "Fail")) return;

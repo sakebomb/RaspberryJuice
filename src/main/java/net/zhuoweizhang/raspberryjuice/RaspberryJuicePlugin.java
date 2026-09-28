@@ -4,6 +4,7 @@ import java.net.InetSocketAddress;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -156,6 +157,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	public PlotBounds plotFor(String name) {
 		if (!plots.enabled || name == null) return null;
 		return plots.byName.get(name);
+	}
+
+	Map<String, PlotBounds> plotsByName() {
+		return plots.byName;
 	}
 
 	public boolean locksWorldRules() {
@@ -345,7 +350,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		if (getCommand("rj") != null) {
 			getCommand("rj").setExecutor(new ClassroomCommands(this));
 		} else {
-			getLogger().warning("plugin.yml is missing the rj command; /rj freeze is unavailable.");
+			getLogger().warning("plugin.yml is missing the rj command; /rj freeze and reset are unavailable.");
 		}
 		
 		//create new tcp listener thread

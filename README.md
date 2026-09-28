@@ -184,6 +184,7 @@ Modify config.yml:
  - sandbox-max-blocks-per-tick: 0 - tighter per-tick cuboid budget while `plots` is on. 0 = no extra cap. A class of 30 should set this well under the 10000000 default (for example 20000).
  - sandbox-max-commands-per-tick: 0 - commands drained per tick per session while `plots` is on. 0 keeps the built-in 9000. Read when the socket connects. 500 logs `Over 500 commands` when a tick defers the rest.
  - /rj freeze &lt;player&gt; and /rj unfreeze &lt;player&gt; - teacher command (`raspberryjuice.classroom.teacher`, default op; console is allowed). Freezes that online player's socket: reads, event polls, and agent turns still run, and every other command keeps its usual reply without changing the world. The player can still walk and build by hand. Freeze survives a reconnect and clears on restart. An offline or unknown name is refused. See [SECURITY.md](SECURITY.md).
+ - /rj reset &lt;player&gt; - same permission. Sets that configured plot to air, removes non-player entities inside it (including a shared overlap), and discards that student's agent. The student may be offline. One name per call. A plot over 100000 blocks, or over a tighter positive `max-blocks` / `sandbox-max-blocks`, is refused and changes nothing. There is no undo, and the entity cap is not refunded. Back up the world first. See [SECURITY.md](SECURITY.md).
 
 ## Libraries
 
