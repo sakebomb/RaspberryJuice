@@ -72,7 +72,7 @@ player-tokens: {}
 #   location ABSOLUTE: the numbers are world block coordinates.
 # Each entry is six integers: minX,minY,minZ,maxX,maxY,maxZ (inclusive). Corners may
 # be listed in either order. Overlapping plots are logged; both students can write the
-# shared cells, and /rj reset of either plot (a later change) wipes those cells.
+# shared cells, and /rj reset of either plot wipes those cells.
 # A gap under 2 blocks is logged as a piston warning, not a water warning. Water reaches
 # seven blocks from a source, so keep eight blocks between plot edges.
 # Player names must not contain a comma or a pipe.
@@ -107,6 +107,15 @@ sandbox-max-blocks-per-tick: 0
 # ("Over " + the cap), so 500 logs "Over 500 commands", not the literal 9000.
 # Ignored when the sandbox is off. A negative value is treated as 0.
 sandbox-max-commands-per-tick: 0
+
+# Shared secret for the socket teacher commands classroom.freeze(name,token),
+# classroom.unfreeze(name,token) and classroom.reset(name,token). They do the same work as
+# /rj freeze, /rj unfreeze and /rj reset. EMPTY (default) = those commands answer "Fail" and
+# never lock the socket out. Non-empty = the command must carry this token; the third wrong
+# token closes the connection (a separate count from setPlayer's). Hand it only to teachers.
+# NOTE: the socket is not encrypted, so tunnel the port. Most classrooms should leave this
+# empty and use /rj. Avoid commas and pipes in the token: arguments are not escaped.
+classroom-teacher-token: ''
 
 # Maximum number of blocks a single world.getBlocks / world.setBlocks request may span.
 # Guards against a client freezing or OOM-ing the server with a huge cuboid (the work runs

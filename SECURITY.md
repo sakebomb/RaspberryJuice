@@ -81,6 +81,17 @@ a teaching/scripting bridge — but it means:
     and `max-entities-per-session` is not refunded. A plot over 100000 blocks, or over a
     tighter positive `max-blocks` or `sandbox-max-blocks`, is refused and changes nothing.
     There is no undo. Back up the world before the first reset.
+  - **Socket teacher commands** — `classroom.freeze(name,token)`, `classroom.unfreeze(name,token)`,
+    and `classroom.reset(name,token)` do the same work as the matching `/rj` command and answer
+    `1` only when it ran. They are off by default: with `classroom-teacher-token` empty, each
+    answers `Fail` and nothing is counted. With a token set, the compare is constant-time, a
+    wrong or missing token answers `Fail`, and the third one closes the connection. That count is
+    separate from `setPlayer`'s, so guessing one secret does not spend the other's attempts. The
+    token is the only authorization: the caller's own plot and freeze state do not matter. An
+    offline name, a missing plot, or an over-ceiling reset answers `Fail` without a strike. The
+    token travels the unencrypted socket, so prefer `/rj` and tunnel the port. A well-formed
+    command never logs the token, but a malformed line (for example a missing `)`) is logged in
+    full, token included — the same residual as `auth-token`.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.

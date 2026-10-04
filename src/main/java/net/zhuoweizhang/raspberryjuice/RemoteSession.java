@@ -162,6 +162,11 @@ public class RemoteSession {
 	private int setPlayerAuthFailures = 0;
 	private static final int MAX_SETPLAYER_AUTH_FAILURES = 3;
 
+	// wrong classroom-teacher-token attempts on classroom.* commands. A separate counter from
+	// setPlayerAuthFailures so guessing one secret does not spend the other's attempts. #18
+	private int classroomTeacherAuthFailures = 0;
+	private static final int MAX_CLASSROOM_TEACHER_AUTH_FAILURES = 3;
+
 	// Per-connection socket I/O safety caps: bound the memory one client can force us to hold so a
 	// single connection can't OOM the server via a giant unterminated line, an input flood faster
 	// than the tick loop can drain (maxCommandsPerTick/tick), or a pile of unread responses. These
@@ -455,6 +460,11 @@ public class RemoteSession {
 		r.put("chat.post", this::cmdChatPost);
 		r.put("setPlayer", this::cmdSetPlayer);
 
+		// teacher commands, authorized by classroom-teacher-token (#18)
+		r.put("classroom.freeze", this::cmdClassroomFreeze);
+		r.put("classroom.unfreeze", this::cmdClassroomUnfreeze);
+		r.put("classroom.reset", this::cmdClassroomReset);
+
 		// event polls: global, per-entity, per-player, and the #13 snapshot streams
 		r.put("events.clear", this::cmdEventsClear);
 		r.put("events.block.hits", this::cmdEventsBlockHits);
@@ -707,6 +717,61 @@ public class RemoteSession {
 		byte[] a = provided.getBytes(java.nio.charset.StandardCharsets.UTF_8);
 		byte[] b = expected.getBytes(java.nio.charset.StandardCharsets.UTF_8);
 		return java.security.MessageDigest.isEqual(a, b);
+	}
+
+	// ==== command handlers: classroom teacher commands (#18) ====
+	// classroom.<cmd>(name,token). The token is the only authorization: the caller's own binding,
+	// plot, and freeze bit do not matter. "1" only when the matching /rj command would do the work.
+
+	void cmdClassroomFreeze(String[] args, World world, Server server) {
+		setFrozenByTeacher(args, true);
+	}
+
+	void cmdClassroomUnfreeze(String[] args, World world, Server server) {
+		setFrozenByTeacher(args, false);
+	}
+
+	void cmdClassroomReset(String[] args, World world, Server server) {
+		if (!isTeacherAuthorized(args)) return;
+		send(PlotReset.reset(plugin, args[0], text -> { }) ? "1" : "Fail");
+	}
+
+	private void setFrozenByTeacher(String[] args, boolean freeze) {
+		if (!isTeacherAuthorized(args)) return;
+		Player target = plugin.getNamedPlayer(args[0]);
+		if (target == null) {
+			send("Fail");
+			return;
+		}
+		if (freeze) {
+			plugin.freeze(target.getUniqueId());
+		} else {
+			plugin.unfreeze(target.getUniqueId());
+		}
+		send("1");
+	}
+
+	// Sends "Fail" and returns false unless args[1] matches classroom-teacher-token (constant-time).
+	// An unconfigured token denies without a strike: there is no secret to guess. A mismatch strikes,
+	// and the third strike closes the connection. Never log the supplied token.
+	private boolean isTeacherAuthorized(String[] args) {
+		String expected = plugin.getClassroomTeacherToken();
+		if (expected.isEmpty()) {
+			send("Fail");
+			return false;
+		}
+		String provided = args.length > 1 ? args[1] : "";
+		byte[] a = provided.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		byte[] b = expected.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		if (java.security.MessageDigest.isEqual(a, b)) return true;
+		send("Fail");
+		classroomTeacherAuthFailures++;
+		if (classroomTeacherAuthFailures >= MAX_CLASSROOM_TEACHER_AUTH_FAILURES) {
+			plugin.getLogger().warning("Closing " + socket.getRemoteSocketAddress()
+				+ " after " + classroomTeacherAuthFailures + " failed classroom teacher-token attempts.");
+			close();
+		}
+		return false;
 	}
 
 	// ==== command handlers: event polls (global / per-entity / per-player) ====
@@ -1696,7 +1761,9 @@ public class RemoteSession {
 		"events.player.moves", "events.block.places", "events.block.breaks", "events.player.deaths",
 		"entity.events.block.hits", "entity.events.chat.posts", "entity.events.projectile.hits",
 		"player.events.block.hits", "player.events.chat.posts", "player.events.projectile.hits",
-		"agent.getPos", "agent.getRotation", "agent.turnLeft", "agent.turnRight");
+		"agent.getPos", "agent.getRotation", "agent.turnLeft", "agent.turnRight",
+		// authorized by the teacher token, not by the caller's freeze bit
+		"classroom.freeze", "classroom.unfreeze", "classroom.reset");
 
 	private static final java.util.Set<String> FREEZE_SILENT = java.util.Set.of(
 		"world.setBlock", "world.setBlocks", "world.setSign", "world.clone", "world.setTime", "world.setWeather",

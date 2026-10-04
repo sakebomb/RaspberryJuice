@@ -109,6 +109,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	// Players whose socket is frozen. Main-thread only. Restart clears it. #18
 	private final Set<UUID> frozenPlayers = new HashSet<>();
 
+	// Shared secret for socket classroom.freeze / unfreeze / reset. Empty = those commands Fail. #18
+	private String classroomTeacherToken;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
@@ -135,6 +138,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 	public String getAuthToken() {
 		return authToken == null ? "" : authToken;
+	}
+
+	public String getClassroomTeacherToken() {
+		return classroomTeacherToken == null ? "" : classroomTeacherToken;
 	}
 
 	// True when per-player authorization is in effect (the player-tokens map is non-empty). When
@@ -289,6 +296,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		allowGlobalEvents = this.getConfig().getBoolean("allow-global-events", false);
 
 		authToken = this.getConfig().getString("auth-token", "");
+
+		//shared secret for socket classroom.freeze / unfreeze / reset. Empty = those commands Fail. #18
+		classroomTeacherToken = this.getConfig().getString("classroom-teacher-token", "");
 
 		//max concurrent socket sessions (0 = unlimited), and max new connections per remote IP per
 		//minute (0 = unlimited) - bound resource use from a flood and slow token brute-forcing (#56)
@@ -591,6 +601,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	void setSandboxMaxCommandsPerTick(int n) {
 		sandboxMaxCommandsPerTick = n;
+	}
+
+	/** Visible for tests: set the socket teacher token without reloading config. */
+	void setClassroomTeacherToken(String token) {
+		classroomTeacherToken = token;
 	}
 
 	/** The IP portion of a socket address for rate-limiting (falls back to the full string). */
