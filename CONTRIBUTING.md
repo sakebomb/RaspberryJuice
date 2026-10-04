@@ -24,6 +24,10 @@ protocol against a live server (drop the jar into a Paper server's `plugins/`, s
 then `python3 scripts/smoke_test.py [host] [port]`). CI runs this automatically against a
 real Paper 26.2 server.
 
+`e2e/classroom.mjs` goes further: it joins two bot players and checks the classroom sandbox
+in-game (plot fences, break/place protection, freeze, reset, teacher token). See
+[`e2e/README.md`](e2e/README.md) to run it locally; CI runs it on every PR.
+
 ## Making a change
 
 1. **Branch** off `master` with a typed name: `feat/…`, `fix/…`, `refactor/…`,
@@ -31,8 +35,8 @@ real Paper 26.2 server.
 2. **Write a test** for behaviour changes. Bug fixes should include a regression test;
    protocol/command changes should be pinned by a characterization test.
 3. Keep changes focused — small PRs are much easier to review.
-4. **Open a PR** into `master`. CI (build + unit tests on JDK 25, plus a live Paper 26.2
-   smoke test) must be green before merge.
+4. **Open a PR** into `master`. CI (build + unit tests on JDK 25, a live Paper 26.2
+   smoke test, and the in-game classroom e2e) must be green before merge.
 
 ## Style
 
