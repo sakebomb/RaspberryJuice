@@ -37,7 +37,16 @@ export class PaperServer {
 		this.proc = spawn('java', ['-Xms1G', '-Xmx2G', '-jar', 'paper.jar', '--nogui'], {
 			cwd: this.dir, stdio: ['pipe', 'pipe', 'pipe'],
 		});
-		this.exited = new Promise((resolve) => this.proc.on('exit', resolve));
+		this.exited = new Promise((resolve) => {
+			this.proc.on('exit', resolve);
+			this.proc.on('error', (err) => { this.spawnError = err; resolve(null); });
+		});
+		this.proc.stdin.on('error', () => { }); // a command written after Paper died is not a crash
+		// A dead server fails every pending wait at once instead of after its full timeout.
+		this.exited.then((code) => {
+			const reason = this.spawnError ? `could not start java: ${this.spawnError.message}` : `Paper exited (code ${code})`;
+			this.waiters.splice(0).forEach((w) => w.reject(new Error(reason)));
+		});
 		for (const stream of [this.proc.stdout, this.proc.stderr]) {
 			let partial = '';
 			stream.setEncoding('utf8');
@@ -60,8 +69,15 @@ export class PaperServer {
 	waitFor(pattern, timeoutMs, fromIndex = 0) {
 		const seen = this.lines.slice(fromIndex).find((line) => pattern.test(line));
 		if (seen) return Promise.resolve(seen);
+		if (this.spawnError || (this.proc && this.proc.exitCode !== null)) {
+			return Promise.reject(new Error('Paper is not running'));
+		}
 		return new Promise((resolve, reject) => {
-			const waiter = { pattern, resolve: (line) => { clearTimeout(timer); resolve(line); } };
+			const waiter = {
+				pattern,
+				resolve: (line) => { clearTimeout(timer); resolve(line); },
+				reject: (err) => { clearTimeout(timer); reject(err); },
+			};
 			const timer = setTimeout(() => {
 				this.waiters = this.waiters.filter((w) => w !== waiter);
 				reject(new Error(`timed out after ${timeoutMs}ms waiting for log ${pattern}`));
@@ -79,6 +95,10 @@ export class PaperServer {
 
 	logSince(index) {
 		return this.lines.slice(index);
+	}
+
+	kill() {
+		if (this.proc && this.proc.exitCode === null) this.proc.kill('SIGKILL');
 	}
 
 	async stop() {

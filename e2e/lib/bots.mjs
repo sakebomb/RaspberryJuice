@@ -6,6 +6,8 @@ import { Vec3 } from 'vec3';
 
 const BOT_PROTOCOL_VERSION = '26.1';
 const HAND_ACTION_TIMEOUT_MS = 3_000;
+// Survival reach is 4.5 blocks from the eyes, creative is 5. Use the tighter one.
+const REACH = 4.5;
 
 export function joinBot(name, port, timeoutMs) {
 	const bot = mineflayer.createBot({
@@ -34,7 +36,21 @@ export async function waitForBlock(bot, x, y, z, timeoutMs) {
 export async function breakBlock(bot, x, y, z) {
 	const block = bot.blockAt(new Vec3(x, y, z));
 	if (!block || block.name === 'air') throw new Error(`${bot.username}: nothing to break at ${x},${y},${z}`);
+	assertCanAct(bot, block);
 	return withTimeout(bot.dig(block, true));
+}
+
+/**
+ * A refused-edit check reads "unchanged" whether the server refused the action or the client never
+ * sent it. Throw for every way it might not be sent: disconnected, or the block out of reach.
+ */
+function assertCanAct(bot, block) {
+	if (!bot.entity || bot._client.state !== 'play') throw new Error(`${bot.username} is not in the game`);
+	const eye = bot.entity.position.offset(0, bot.entity.eyeHeight ?? 1.62, 0);
+	const distance = eye.distanceTo(block.position.offset(0.5, 0.5, 0.5));
+	if (distance > REACH) {
+		throw new Error(`${bot.username} is ${distance.toFixed(2)} blocks from ${block.position}, past reach ${REACH}`);
+	}
 }
 
 /** Places the held item on the top face of the block at (x, y, z), so into (x, y + 1, z). */
@@ -46,6 +62,7 @@ export async function placeOnTop(bot, itemName, x, y, z) {
 	// Without a solid block to click, the client never sends the place, and a refused-edit check
 	// would pass for the wrong reason.
 	if (!reference || reference.name === 'air') throw new Error(`${bot.username}: nothing to place on at ${x},${y},${z}`);
+	assertCanAct(bot, reference);
 	return withTimeout(bot.placeBlock(reference, new Vec3(0, 1, 0)));
 }
 

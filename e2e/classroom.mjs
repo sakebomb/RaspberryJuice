@@ -76,7 +76,8 @@ async function setUp(server) {
 		server.command(`gamemode creative ${name}`);
 		server.command(`tp ${name} ${x} ${Y} 3.5`);
 		server.command(`give ${name} stone 64`);
-	}	const sa = await RjSocket.connect(RJ_PORT, REPLY_TIMEOUT_MS);
+	}
+	const sa = await RjSocket.connect(RJ_PORT, REPLY_TIMEOUT_MS);
 	const sb = await RjSocket.connect(RJ_PORT, REPLY_TIMEOUT_MS);
 	check('Alice socket binds with setPlayer', (await sa.call('setPlayer(Alice)')) === '1');
 	check('Bob socket binds with setPlayer', (await sb.call('setPlayer(Bob)')) === '1');
@@ -118,8 +119,11 @@ async function handProtection(server, { alice, sa, sb }) {
 	check("Alice cannot place a block in Bob's plot", (await stays(sb, 10, Y + 1, 4)) === AIR);
 	await placeOnTop(alice, 'stone', 5, Y, 3);
 	check('Alice can place a block in her own plot', (await becomes(sa, 5, Y + 1, 3, STONE)) === STONE);
-	check('no plugin errors during hand edits', !server.lines.some((l) => /RaspberryJuice.*(Exception|SEVERE)/.test(l)));
 }
+
+// Paper logs a listener crash as "Could not pass event ..." at ERROR, and a command handler crash
+// as "Error handling command". Anything at ERROR after boot is a failure, whatever logged it.
+const SERVER_ERROR = /\bERROR\]|Could not pass event|Error handling command|Exception\b/;
 
 async function freeze(server, { alice, sa }) {
 	let mark = server.command('rj freeze Alice');
@@ -166,14 +170,19 @@ async function teacherToken(server, { sa }) {
 	await sleep(SETTLE_MS);
 	check('third wrong token closes the connection', teacher.closed);
 	check('lockout is logged', server.logSince(mark).some((l) => /failed classroom teacher-token attempts/.test(l)));
-	check('no token or guess reaches the log', !server.logSince(mark).some((l) => l.includes(TOKEN) || l.includes('wrong-')));
+	check('no token or guess reaches the log', !server.lines.some((l) => l.includes(TOKEN) || l.includes('wrong-')));
 }
 
 async function main() {
 	const server = new PaperServer(join(HERE, '.server'), { mcPort: MC_PORT, rjPort: RJ_PORT });
 	let world = null;
+	// Ctrl-C or a cancelled CI job must not leave Paper running and holding the ports.
+	for (const signal of ['SIGINT', 'SIGTERM']) {
+		process.once(signal, () => { server.kill(); process.exit(130); });
+	}
 	try {
 		await server.start(pluginConfig(), BOOT_TIMEOUT_MS);
+		const booted = server.lines.length;
 		check('ViaVersion is enabled', server.lines.some((l) => /Enabling ViaVersion/.test(l)));
 		check('RaspberryJuice is enabled', server.lines.some((l) => /Enabling RaspberryJuice/.test(l)));
 		world = await setUp(server);
@@ -182,6 +191,8 @@ async function main() {
 		await freeze(server, world);
 		await reset(server, world);
 		await teacherToken(server, world);
+		const errors = server.logSince(booted).filter((l) => SERVER_ERROR.test(l));
+		check('no server errors after boot', errors.length === 0, errors.slice(0, 5).join(' | '));
 	} catch (err) {
 		check('harness ran to completion', false, err.stack ?? String(err));
 	} finally {
