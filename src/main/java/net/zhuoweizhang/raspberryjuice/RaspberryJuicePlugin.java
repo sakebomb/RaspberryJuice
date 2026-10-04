@@ -253,6 +253,14 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		return tokens;
 	}
 
+	// A comma splits the argument, so a token containing one can never match. Null when fine.
+	// The warning names the problem, never the token. #18
+	static String teacherTokenWarning(String token) {
+		if (token == null || token.indexOf(',') < 0) return null;
+		return "classroom-teacher-token contains a comma. Arguments are split on commas, so "
+			+ "classroom.* commands can never match it and will always answer Fail.";
+	}
+
 	public void onEnable() {
 		//save a copy of the default config.yml if one is not there
         this.saveDefaultConfig();
@@ -299,6 +307,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//shared secret for socket classroom.freeze / unfreeze / reset. Empty = those commands Fail. #18
 		classroomTeacherToken = this.getConfig().getString("classroom-teacher-token", "");
+		String teacherTokenProblem = teacherTokenWarning(classroomTeacherToken);
+		if (teacherTokenProblem != null) getLogger().warning(teacherTokenProblem);
 
 		//max concurrent socket sessions (0 = unlimited), and max new connections per remote IP per
 		//minute (0 = unlimited) - bound resource use from a flood and slow token brute-forcing (#56)

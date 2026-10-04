@@ -121,6 +121,48 @@ class RemoteSessionTeacherTokenTest {
 		}
 	}
 
+	@Test
+	void successfulTeacherCommands_logWhoAndFromWhere_butNotTheToken() throws Exception {
+		plugin.setClassroomTeacherToken(TOKEN);
+		plots("""
+			plots:
+			  Ghost: [0, 0, 0, 3, 0, 3]
+			""");
+		List<String> logged = captureLog();
+		LockoutSession s = session();
+		assertEquals("1", send(s, "setPlayer(Alice)"));
+		send(s, "classroom.freeze(Alice," + TOKEN + ")");
+		send(s, "classroom.unfreeze(Alice," + TOKEN + ")");
+		send(s, "classroom.reset(Ghost," + TOKEN + ")");
+		for (String action : List.of("classroom.freeze Alice", "classroom.unfreeze Alice", "classroom.reset Ghost")) {
+			assertTrue(logged.stream().anyMatch(line -> line.contains(action) && line.contains(PEER_IP)
+				&& line.contains("Alice")), action + " must be logged with the caller: " + logged);
+		}
+		for (String line : logged) {
+			assertFalse(line.contains(TOKEN), line);
+		}
+	}
+
+	@Test
+	void refusedTeacherCommands_logNothingPerAttempt() throws Exception {
+		plugin.setClassroomTeacherToken(TOKEN);
+		LockoutSession s = session();
+		List<String> logged = captureLog();
+		send(s, "classroom.freeze(Ghost," + TOKEN + ")");
+		send(s, "classroom.reset(Ghost," + TOKEN + ")");
+		send(s, "classroom.freeze(Alice,wrong)");
+		assertEquals(List.of(), logged);
+	}
+
+	@Test
+	void teacherTokenWarning_flagsOnlyAComma() {
+		assertEquals(null, RaspberryJuicePlugin.teacherTokenWarning(""));
+		assertEquals(null, RaspberryJuicePlugin.teacherTokenWarning("long-random|secret"));
+		String warning = RaspberryJuicePlugin.teacherTokenWarning("abc,def");
+		assertTrue(warning != null && warning.contains("comma"), String.valueOf(warning));
+		assertFalse(warning.contains("abc"), "the warning must not echo the token");
+	}
+
 	// ---- freeze / unfreeze ---------------------------------------------------
 
 	@Test

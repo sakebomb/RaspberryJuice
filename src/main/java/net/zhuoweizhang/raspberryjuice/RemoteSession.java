@@ -733,7 +733,12 @@ public class RemoteSession {
 
 	void cmdClassroomReset(String[] args, World world, Server server) {
 		if (!isTeacherAuthorized(args)) return;
-		send(PlotReset.reset(plugin, args[0], text -> { }) ? "1" : "Fail");
+		if (!PlotReset.reset(plugin, args[0], text -> { })) {
+			send("Fail");
+			return;
+		}
+		logTeacherAction("classroom.reset", args[0]);
+		send("1");
 	}
 
 	private void setFrozenByTeacher(String[] args, boolean freeze) {
@@ -748,7 +753,16 @@ public class RemoteSession {
 		} else {
 			plugin.unfreeze(target.getUniqueId());
 		}
+		logTeacherAction(freeze ? "classroom.freeze" : "classroom.unfreeze", PlainText.plain(target.playerListName()));
 		send("1");
+	}
+
+	// The server already logs who ran /rj; this is the same record for the socket form. Only after
+	// the work ran, so the target is a configured plot or an online player, never raw input.
+	private void logTeacherAction(String command, String target) {
+		String caller = boundPlayerName == null ? "an unbound session" : boundPlayerName;
+		plugin.getLogger().info(command + " " + target + " by " + caller
+			+ " from " + socket.getRemoteSocketAddress() + ".");
 	}
 
 	// Sends "Fail" and returns false unless args[1] matches classroom-teacher-token (constant-time).

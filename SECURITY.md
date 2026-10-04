@@ -89,9 +89,12 @@ a teaching/scripting bridge — but it means:
     separate from `setPlayer`'s, so guessing one secret does not spend the other's attempts. The
     token is the only authorization: the caller's own plot and freeze state do not matter. An
     offline name, a missing plot, or an over-ceiling reset answers `Fail` without a strike. The
-    token travels the unencrypted socket, so prefer `/rj` and tunnel the port. A well-formed
-    command never logs the token, but a malformed line (for example a missing `)`) is logged in
-    full, token included — the same residual as `auth-token`.
+    token travels the unencrypted socket, so prefer `/rj` and tunnel the port. Each command that
+    succeeds logs one info line with the command, target, caller, and remote address, the
+    socket's equivalent of the server's own `/rj` command log. Refusals log nothing per attempt.
+    A token containing a comma can never match, and the plugin warns about it at startup. A
+    well-formed command never logs the token, but a malformed line (for example a missing `)`)
+    is logged in full, token included — the same residual as `auth-token`.
   - **`enable-op-commands`** — set `false` to disable the power commands `player.setGameMode` /
     `player.give`, so a socket client can't self-grant creative mode or items on a shared/survival
     server.
