@@ -3,6 +3,7 @@ package net.zhuoweizhang.raspberryjuice;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -13,7 +14,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 /**
- * {@code /rj reset}. Air-fill one configured plot on the main thread. No snapshot.
+ * {@code /rj reset} and socket {@code classroom.reset}. Air-fill one configured plot on the main thread. No snapshot.
  * A refused reset returns before any agent discard, entity removal, or block write.
  */
 final class PlotReset {
@@ -22,32 +23,38 @@ final class PlotReset {
 	}
 
 	static void run(RaspberryJuicePlugin plugin, CommandSender sender, String name) {
+		reset(plugin, name, text -> say(sender, text));
+	}
+
+	/** The work behind {@code /rj reset} and socket {@code classroom.reset}. True only if the wipe ran. */
+	static boolean reset(RaspberryJuicePlugin plugin, String name, Consumer<String> report) {
 		PlotBounds plot = plugin.plotFor(name);
 		if (plot == null) {
-			say(sender, "No plot named " + name + ". Nothing was changed.");
-			return;
+			report.accept("No plot named " + name + ". Nothing was changed.");
+			return false;
 		}
 		long volume = plot.volume();
 		long ceiling = ceiling(plugin);
 		if (volume > ceiling) {
-			say(sender, name + "'s plot is " + volume + " blocks, over the reset ceiling of "
+			report.accept(name + "'s plot is " + volume + " blocks, over the reset ceiling of "
 				+ ceiling + ". Nothing was changed.");
-			return;
+			return false;
 		}
 		if (plugin.getServer().getWorlds().isEmpty()) {
-			say(sender, "No world is loaded. Nothing was changed.");
-			return;
+			report.accept("No world is loaded. Nothing was changed.");
+			return false;
 		}
 		BlockData air = air();
 		if (air == null) {
-			say(sender, "Could not resolve air. Nothing was changed.");
-			return;
+			report.accept("Could not resolve air. Nothing was changed.");
+			return false;
 		}
 		World world = plugin.getServer().getWorlds().get(0);
 		discardAgents(plugin, name);
 		removeEntities(world, plot, plugin);
 		fill(world, plot, plugin, air);
-		say(sender, success(plugin, name, plot));
+		report.accept(success(plugin, name, plot));
+		return true;
 	}
 
 	/** 100_000, or a tighter positive {@code max-blocks} / {@code sandbox-max-blocks}. */

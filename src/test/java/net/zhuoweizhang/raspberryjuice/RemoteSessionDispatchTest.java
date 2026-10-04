@@ -40,6 +40,8 @@ class RemoteSessionDispatchTest {
 		"player.setGameMode", "player.give",
 		// chat + session identity
 		"chat.post", "setPlayer",
+		// teacher commands (token-gated)
+		"classroom.freeze", "classroom.unfreeze", "classroom.reset",
 		// event polls
 		"events.clear", "events.block.hits", "events.chat.posts", "events.projectile.hits",
 		"entity.events.clear", "entity.events.block.hits", "entity.events.chat.posts",
