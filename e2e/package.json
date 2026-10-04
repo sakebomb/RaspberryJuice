@@ -1,0 +1,16 @@
+{
+  "name": "raspberryjuice-e2e",
+  "private": true,
+  "type": "module",
+  "description": "In-game end-to-end tests for RaspberryJuice against a live Paper server",
+  "scripts": {
+    "test": "node classroom.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "mineflayer": "4.39.0",
+    "vec3": "0.1.10"
+  }
+}
