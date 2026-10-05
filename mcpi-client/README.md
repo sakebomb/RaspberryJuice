@@ -10,15 +10,15 @@ Python 3.9+, type-hinted, and tested. The classic numeric block/entity ids still
 the RaspberryJuice server bridges them to the modern `BlockData` API.
 
 > Looking for a *new*, cleaner API instead of drop-in compatibility? See the sibling
-> [`raspberryjuice` client](../client). This package exists specifically to run **existing**
+> [`raspberryjuice` client](https://github.com/sakebomb/RaspberryJuice/tree/master/client). This package exists specifically to run **existing**
 > `mcpi` curriculum.
 
 ## Install
 
 ```bash
+pip install raspberryjuice-mcpi   # the import name is still `mcpi`
+# or, from a clone of this repo:
 pip install ./mcpi-client
-# or, from a clone:
-pip install "git+https://github.com/sakebomb/RaspberryJuice#subdirectory=mcpi-client"
 ```
 
 The distribution is named `raspberryjuice-mcpi` (to avoid clashing with the legacy `mcpi` on
@@ -55,7 +55,7 @@ mc.setBlocks(0, 0, 0, 5, 5, 5, block.STONE.id)
 
 `Minecraft.create()` speaks the plain, unauthenticated mcpi protocol — it's meant for the
 common single-user / classroom-LAN case (server on `localhost`). If your server sets an
-`auth-token` or per-player `player-tokens`, use the [`raspberryjuice` client](../client) (which
+`auth-token` or per-player `player-tokens`, use the [`raspberryjuice` client](https://github.com/sakebomb/RaspberryJuice/tree/master/client) (which
 supports tokens) or tunnel the port; see the server's `SECURITY.md`.
 
 On a RaspberryJuice server that supports it, `Minecraft.create()` turns on text escaping, so

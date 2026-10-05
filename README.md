@@ -10,20 +10,27 @@
 A Bukkit/Paper plugin which implements the Minecraft Pi Socket API, letting Python (and other)
 `mcpi` clients drive Minecraft over a simple TCP protocol.
 
-**New:** a friendly, typed Python client lives in [`client/`](client/) — `pip install ./client`,
+**New:** a friendly, typed Python client lives in [`client/`](client/) — `pip install raspberryjuice`,
 then `from raspberryjuice import Minecraft`. It covers blocks, the turtle **agent**, **entity/mob
 control**, and world/player commands. See [`client/README.md`](client/README.md).
 
+The plugin is listed as **RaspberryJuice Reloaded** on
+[Modrinth](https://modrinth.com/plugin/raspberryjuice-reloaded) and
+[Hangar](https://hangar.papermc.io/sakebomb/RaspberryJuice-Reloaded), and both Python clients are
+on PyPI.
+
 ## Quickstart
 
-1. **Install the plugin.** Grab `raspberryjuice-*.jar` from the
+1. **Install the plugin.** Grab `raspberryjuice-*.jar` from
+   [Modrinth](https://modrinth.com/plugin/raspberryjuice-reloaded),
+   [Hangar](https://hangar.papermc.io/sakebomb/RaspberryJuice-Reloaded), or the
    [latest release](https://github.com/sakebomb/RaspberryJuice/releases/latest) (or build it —
    see [Build](#build)) and drop it in your **Paper 26.2 / Java 25** server's `plugins/` folder,
    then start the server. It listens on `localhost:4711` by default.
 2. **Install the Python client.**
 
    ```bash
-   pip install ./client        # from a clone; or: pip install "git+https://github.com/sakebomb/RaspberryJuice#subdirectory=client"
+   pip install raspberryjuice   # or, from a clone: pip install ./client
    ```
 
 3. **Drive Minecraft from Python.**

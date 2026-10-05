@@ -1,20 +1,43 @@
 name: Release
 
-# Cut a GitHub Release with the built plugin jar when a version tag is pushed.
+# On a version tag: build the plugin jar, cut a GitHub Release (the source of truth), then mirror
+# the same jar to Modrinth and Hangar and publish the Python clients to PyPI.
+#
+# Each registry job is gated on a repository variable, so a tag pushed before an account is set
+# up still produces the GitHub Release and skips that registry. See docs/publishing.md.
+#
+# Run it by hand (workflow_dispatch) with an existing tag to publish that release to the
+# registries without re-creating the GitHub Release, e.g. to backfill v2.1.0.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish to the registries (e.g. v2.1.0)
+        required: true
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  # Minecraft versions this release is verified on. Update when a release is tested on a new one.
+  MC_VERSIONS: '26.2'
 
 jobs:
-  release:
-    name: Build jar and publish release
+  build:
+    name: Build plugin jar
     runs-on: ubuntu-latest
     steps:
+      - name: Check the tag is a version
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$TAG' is not a vX.Y.Z tag"; exit 1; }
+
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Set up JDK 25 (Temurin)
         uses: actions/setup-java@v6
@@ -28,11 +51,148 @@ jobs:
           chmod +x mvnw
           ./mvnw -B clean verify
 
+      # The registries label the upload with the tag, so the tag must match what was built.
+      - name: Check versions match the tag
+        run: |
+          version="${TAG#v}"
+          [[ -f "target/raspberryjuice-$version.jar" ]] \
+            || { echo "::error::pom.xml version does not match $TAG"; exit 1; }
+          grep -q "^version: '$version'" target/classes/plugin.yml \
+            || { echo "::error::plugin.yml version does not match $TAG"; exit 1; }
+          grep -q "^version = \"$version\"" client/pyproject.toml \
+            || { echo "::error::client/pyproject.toml version does not match $TAG"; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plugin-jar
+          path: target/raspberryjuice-*.jar
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin-jar
+
       - name: Publish release with jar
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            target/raspberryjuice-*.jar \
-            --title "${{ github.ref_name }}" \
+          gh release create "$TAG" raspberryjuice-*.jar \
+            --repo "${{ github.repository }}" \
+            --title "$TAG" \
             --generate-notes
+
+  # Registry jobs mirror the GitHub Release: they run only once it succeeded, or was skipped
+  # because this is a manual backfill of an existing release.
+  modrinth:
+    name: Publish to Modrinth
+    if: >-
+      !cancelled() && vars.MODRINTH_PROJECT_ID != '' && needs.build.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.github-release.result)
+    needs: [build, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin-jar
+
+      - uses: Kir-Antipov/mc-publish@v3.3
+        with:
+          modrinth-id: ${{ vars.MODRINTH_PROJECT_ID }}
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+          files: raspberryjuice-*.jar
+          name: RaspberryJuice Reloaded ${{ env.TAG }}
+          version: ${{ env.TAG }}
+          version-type: release
+          changelog: See https://github.com/${{ github.repository }}/releases/tag/${{ env.TAG }}
+          loaders: paper
+          game-versions: ${{ env.MC_VERSIONS }}
+          java: 25
+
+  hangar:
+    name: Publish to Hangar
+    if: >-
+      !cancelled() && vars.HANGAR_PROJECT != '' && needs.build.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.github-release.result)
+    needs: [build, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin-jar
+          path: plugin
+
+      - name: Upload version
+        env:
+          HANGAR_API_KEY: ${{ secrets.HANGAR_API_KEY }}
+          HANGAR_PROJECT: ${{ vars.HANGAR_PROJECT }}
+        run: scripts/hangar-publish.sh plugin/raspberryjuice-*.jar "${TAG#v}" "$MC_VERSIONS"
+
+  python-dist:
+    name: Build ${{ matrix.package }} distribution
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [client, mcpi-client]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build and check
+        working-directory: ${{ matrix.package }}
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-dist-${{ matrix.package }}
+          path: ${{ matrix.package }}/dist/
+          if-no-files-found: error
+
+  pypi:
+    name: Publish ${{ matrix.package }} to PyPI
+    if: >-
+      !cancelled() && vars.PYPI_PUBLISH == 'true' && needs.build.result == 'success'
+      && needs.python-dist.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.github-release.result)
+    needs: [build, github-release, python-dist]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # One environment per project, so each PyPI trusted publisher matches exactly one job.
+        include:
+          - package: client
+            environment: pypi-raspberryjuice
+          - package: mcpi-client
+            environment: pypi-raspberryjuice-mcpi
+    environment: ${{ matrix.environment }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-dist-${{ matrix.package }}
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # The two packages version independently; a tag that doesn't bump one skips it.
+          skip-existing: true

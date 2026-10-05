@@ -9,6 +9,10 @@ All notable changes to this project are documented here. This project roughly fo
 - **Classroom startup log.** On enable, the server log says whether the classroom sandbox is on,
   with the number of valid plots and skipped keys, so a teacher can confirm the config took
   effect without connecting a client. (#86)
+- **Registry publishing.** A release tag now also publishes the plugin to Modrinth and Hangar
+  as *RaspberryJuice Reloaded*, and both Python clients to PyPI (`raspberryjuice`,
+  `raspberryjuice-mcpi`). Each registry is opt-in through a repo variable. See
+  [`docs/publishing.md`](docs/publishing.md). (#11)
 
 ### Fixed
 - **Commas and pipes in free text.** A connection that sends `protocol.escape(1)` gets exact
