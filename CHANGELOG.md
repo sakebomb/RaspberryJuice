@@ -5,6 +5,34 @@ All notable changes to this project are documented here. This project roughly fo
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-10-05
+
+The "programmable education platform" work — turning RaspberryJuice into a STEM teaching tool,
+including classroom mode for many students on one server.
+
+### Added
+- **Classroom mode** — per-student plots, in-game build protection, opt-in classroom caps, and
+  teacher freeze / reset. Off by default; see Security for the details. (#18)
+- **Agent (turtle)** — a per-session, code-driven bot: `agent.spawn / forward / back / up /
+  down / turnLeft / turnRight / setBlock / getPos / getRotation`. Deterministic grid movement.
+- **Entity/mob control** — `entity.moveTo` (real pathfinding), `lookAt`, `getHealth / setHealth`,
+  `setName`, `setAI`.
+- **World & player control** — `world.setTime / getTime / setWeather / clone`,
+  `player.setGameMode / give`.
+- **Reactive events** — `events.player.moves`, `events.block.breaks`, `events.block.places`,
+  `events.player.deaths`. Scoped to the session's own player by default (see Security).
+- **`setPlayer(<name>)`** — bind a connection to a named online player (Python:
+  `mc.set_player("Alice")`); scopes `player.*` commands and reactive events to that player.
+- **Python client** — a typed, `pip`-installable `raspberryjuice` package in `client/`, with
+  examples and a test suite.
+- **Drop-in `mcpi` client** — a modern, typed `raspberryjuice-mcpi` package in `mcpi-client/`
+  that keeps the classic `from mcpi.minecraft import Minecraft` API, so existing Pi scripts run
+  unchanged. (#61)
+- **CI** — GitHub Actions build/test on JDK 25, a live Paper 26.2 integration smoke, the
+  Python client suites, an in-game classroom e2e test with two bot players (#84), and a
+  tag-triggered release workflow.
+- `SECURITY.md`, `CONTRIBUTING.md`, issue/PR templates.
+
 ### Security
 - **Per-student plots** — `plots` (empty by default) confines a socket to the axis-aligned
   plot of the player it bound with `setPlayer`. A non-empty map is fail-closed: no matching
@@ -23,6 +51,14 @@ All notable changes to this project are documented here. This project roughly fo
   no undo. With `classroom-teacher-token` set (empty by default), a teacher's script can
   send `classroom.freeze` / `unfreeze` / `reset(name,token)` for the same work; three
   wrong tokens close the connection on a counter separate from `setPlayer`'s. (#18)
+- **In-game plot protection** — while `plots` is on, breaking, placing, or using a bucket on a
+  block inside another student's plot is cancelled. Gaps between plots and a shared overlap stay
+  open to the students who own them. Holders of `raspberryjuice.classroom.teacher` (default op)
+  bypass it. Flint and steel, spawn eggs, pistons, explosions, and fluid flow are not stopped.
+  (#18)
+- **Classroom caps** — `sandbox-max-blocks`, `sandbox-max-blocks-per-tick`, and
+  `sandbox-max-commands-per-tick` (default 0 = no extra cap) tighten the global cuboid and
+  command limits only while `plots` is on. (#18)
 - **Per-tick distinct-chunk budget** — `max-chunks-per-tick` (default 256) bounds how many
   distinct chunk columns one session may touch in a single tick via coordinate commands
   (`getBlock`/`setBlock`/`getBlocks`/`getHeight`/`spawnEntity`/teleports/…). Already-touched
@@ -35,29 +71,6 @@ All notable changes to this project are documented here. This project roughly fo
   thousands of commands, so without this a client could grow the world's live entity count until
   the server stalls. Over the cap the command returns `Fail` (it is request-response; staying
   silent would desync the client). `removeEntity` does not free a slot; 0 disables the cap. (#57)
-
-## [2.1.0] — 2026-08-20
-
-The "programmable education platform" work — turning RaspberryJuice into a STEM teaching tool.
-
-### Added
-- **Agent (turtle)** — a per-session, code-driven bot: `agent.spawn / forward / back / up /
-  down / turnLeft / turnRight / setBlock / getPos / getRotation`. Deterministic grid movement.
-- **Entity/mob control** — `entity.moveTo` (real pathfinding), `lookAt`, `getHealth / setHealth`,
-  `setName`, `setAI`.
-- **World & player control** — `world.setTime / getTime / setWeather / clone`,
-  `player.setGameMode / give`.
-- **Reactive events** — `events.player.moves`, `events.block.breaks`, `events.block.places`,
-  `events.player.deaths`. Scoped to the session's own player by default (see Security).
-- **`setPlayer(<name>)`** — bind a connection to a named online player (Python:
-  `mc.set_player("Alice")`); scopes `player.*` commands and reactive events to that player.
-- **Python client** — a typed, `pip`-installable `raspberryjuice` package in `client/`, with
-  examples and a test suite.
-- **CI** — GitHub Actions build/test on JDK 25, a live Paper 26.2 integration smoke, and the
-  Python client suite; a tag-triggered release workflow.
-- `SECURITY.md`, `CONTRIBUTING.md`, issue/PR templates.
-
-### Security
 - **Per-session entity ownership** — only the connection that spawned an entity may control it
   (one client can't move/kill another's mobs). Reads stay open.
 - **Optional `auth-token`** — a shared-secret handshake (`auth(<token>)`) that gates the socket;
