@@ -33,7 +33,7 @@ class RemoteSessionLocationTest {
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
 
-		RemoteSession session = new RemoteSession(plugin, socket);
+		RemoteSession session = new QuietSession(plugin, socket);
 		World world = mock(World.class);
 		Location origin = (type == LocationType.ABSOLUTE)
 				? new Location(world, 0, 0, 0)

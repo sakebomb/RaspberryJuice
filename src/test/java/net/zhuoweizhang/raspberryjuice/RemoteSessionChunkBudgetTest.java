@@ -35,7 +35,7 @@ class RemoteSessionChunkBudgetTest {
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
 
-		RemoteSession s = new RemoteSession(plugin, socket);
+		RemoteSession s = new QuietSession(plugin, socket);
 		s.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		return s;
 	}
