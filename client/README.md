@@ -6,8 +6,8 @@ Minecraft plugin. Program Minecraft with Python — great for learning to code.
 ## Install
 
 ```bash
-pip install raspberryjuice        # once published
-# or, from this repo:
+pip install raspberryjuice
+# or, from a clone of this repo:
 pip install ./client
 ```
 
@@ -78,7 +78,7 @@ for arrow in mc.poll_projectile_hits():
 
 ## Examples
 
-See [`examples/`](examples/) — a square, a staircase, and a mob that follows the player.
+See [`examples/`](https://github.com/sakebomb/RaspberryJuice/tree/master/client/examples) — a square, a staircase, and a mob that follows the player.
 
 ## Development
 
