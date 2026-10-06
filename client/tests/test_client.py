@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from raspberryjuice import Minecraft, Vec3, blocks
+from raspberryjuice import BlockChange, ChatPost, Minecraft, PlayerAt, ProjectileHit, Vec3, blocks
 from raspberryjuice.connection import RequestError
 
 
@@ -119,9 +119,14 @@ def test_entity_control(server_and_mc):
 
 
 def test_events_polling(server_and_mc):
-    srv, mc = server_and_mc({"events.projectile.hits": "1,2,3,me|4,5,6,me"})
+    srv, mc = server_and_mc({"events.projectile.hits": "1,2,3,1,me,Zombie|4,5,6,1,me,"})
     hits = mc.poll_projectile_hits()
-    assert hits == ["1,2,3,me", "4,5,6,me"]
+    assert hits == [ProjectileHit(1, 2, 3, "me", "Zombie"), ProjectileHit(4, 5, 6, "me", "")]
+
+
+def test_chat_posts_classic(server_and_mc):
+    srv, mc = server_and_mc({"events.chat.posts": "7,hello, world|8,hi"})
+    assert mc.poll_chat_posts() == [ChatPost(7, "hello, world"), ChatPost(8, "hi")]
 
 
 def test_events_empty(server_and_mc):
@@ -144,6 +149,8 @@ def test_dropped_connection_raises_connectionerror():
 
     def serve_then_drop():
         conn, _ = srv.accept()
+        conn.recv(1024)   # the protocol.escape handshake: answer like an older server
+        conn.sendall(b"Fail\n")
         conn.recv(1024)   # read the query, then close without responding
         conn.close()
 
@@ -234,6 +241,6 @@ def test_reactive_events(server_and_mc):
         "events.block.breaks": "1,5,1,1,Bob",
         "events.player.deaths": "7,63,8,Dan",
     })
-    assert mc.poll_player_moves() == ["3,64,-2,Alice", "4,64,-2,Alice"]
-    assert mc.poll_block_breaks() == ["1,5,1,1,Bob"]
-    assert mc.poll_player_deaths() == ["7,63,8,Dan"]
+    assert mc.poll_player_moves() == [PlayerAt(3, 64, -2, "Alice"), PlayerAt(4, 64, -2, "Alice")]
+    assert mc.poll_block_breaks() == [BlockChange(1, 5, 1, 1, "Bob")]
+    assert mc.poll_player_deaths() == [PlayerAt(7, 63, 8, "Dan")]

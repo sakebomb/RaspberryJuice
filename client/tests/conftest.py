@@ -17,9 +17,13 @@ from raspberryjuice import Minecraft
 
 
 class FakeServer:
+    """``protocol.escape`` lines go to ``handshakes``, not ``received``, and are answered
+    ``Fail`` like an older server unless ``responses`` says otherwise."""
+
     def __init__(self, responses: dict[str, str] | None = None) -> None:
-        self.responses = responses or {}
+        self.responses = {"protocol.escape": "Fail", **(responses or {})}
         self.received: list[str] = []
+        self.handshakes: list[str] = []
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._srv.bind(("127.0.0.1", 0))
@@ -37,8 +41,8 @@ class FakeServer:
             f = conn.makefile("rw", encoding="utf-8", newline="\n")
             for line in f:
                 line = line.rstrip("\n")
-                self.received.append(line)
                 func = line.split("(", 1)[0]
+                (self.handshakes if func == "protocol.escape" else self.received).append(line)
                 if func in self.responses:
                     f.write(self.responses[func] + "\n")
                     f.flush()

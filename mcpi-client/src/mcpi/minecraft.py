@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 from typing import Any, List
 
+from . import _wire
 from .block import Block
 from .connection import Connection
 from .entity import Entity
@@ -82,7 +83,8 @@ class CmdEntity(CmdPositioner):
         super().__init__(connection, "entity")
 
     def getName(self, id: int) -> str:
-        return self.conn.send_receive("entity.getName", id)
+        name = self.conn.send_receive("entity.getName", id)
+        return _wire.unescape(name) if self.conn.escaping else name
 
     def getEntities(self, id: int, distance: int = 10, typeId: int = -1) -> List[list]:
         s = self.conn.send_receive("entity.getEntities", id, distance, typeId)
@@ -97,11 +99,11 @@ class CmdEntity(CmdPositioner):
 
     def pollChatPosts(self, id: int) -> List[ChatEvent]:
         s = self.conn.send_receive("entity.events.chat.posts", id)
-        return _parse_chat_posts(s)
+        return _parse_chat_posts(s, self.conn.escaping)
 
     def pollProjectileHits(self, id: int) -> List[ProjectileEvent]:
         s = self.conn.send_receive("entity.events.projectile.hits", id)
-        return _parse_projectile_hits(s)
+        return _parse_projectile_hits(s, self.conn.escaping)
 
     def clearEvents(self, id: int) -> None:
         self.conn.send("entity.events.clear", id)
@@ -154,10 +156,11 @@ class CmdPlayer(CmdPositioner):
         return _parse_block_hits(self.conn.send_receive("player.events.block.hits"))
 
     def pollChatPosts(self) -> List[ChatEvent]:
-        return _parse_chat_posts(self.conn.send_receive("player.events.chat.posts"))
+        return _parse_chat_posts(self.conn.send_receive("player.events.chat.posts"), self.conn.escaping)
 
     def pollProjectileHits(self) -> List[ProjectileEvent]:
-        return _parse_projectile_hits(self.conn.send_receive("player.events.projectile.hits"))
+        return _parse_projectile_hits(self.conn.send_receive("player.events.projectile.hits"),
+                                      self.conn.escaping)
 
     def clearEvents(self) -> None:
         self.conn.send("player.events.clear")
@@ -176,10 +179,10 @@ class CmdEvents:
         return _parse_block_hits(self.conn.send_receive("events.block.hits"))
 
     def pollChatPosts(self) -> List[ChatEvent]:
-        return _parse_chat_posts(self.conn.send_receive("events.chat.posts"))
+        return _parse_chat_posts(self.conn.send_receive("events.chat.posts"), self.conn.escaping)
 
     def pollProjectileHits(self) -> List[ProjectileEvent]:
-        return _parse_projectile_hits(self.conn.send_receive("events.projectile.hits"))
+        return _parse_projectile_hits(self.conn.send_receive("events.projectile.hits"), self.conn.escaping)
 
 
 class Minecraft:
@@ -219,8 +222,11 @@ class Minecraft:
         (id 63) take rotation data 0-15 (0=south 4=west 8=north 12=east).
         """
         flat = list(flatten(args))
-        # the wire splits on commas/parens, so neutralize them in the free-text lines
-        lines = [str(a).replace(",", ";").replace(")", "]").replace("(", "[") for a in flat[5:]]
+        if self.conn.escaping:
+            lines = [str(a) for a in flat[5:]]  # the connection escapes them on the wire
+        else:
+            # the classic wire splits on commas, so neutralize them in the free-text lines
+            lines = [str(a).replace(",", ";").replace(")", "]").replace("(", "[") for a in flat[5:]]
         self.conn.send("world.setSign", _int_floor(flat[0:5]) + lines)
 
     # ---- chat -----------------------------------------------------------
@@ -265,7 +271,9 @@ class Minecraft:
 
     @staticmethod
     def create(address: str = "localhost", port: int = 4711) -> "Minecraft":
-        return Minecraft(Connection(address, port))
+        conn = Connection(address, port)
+        conn.negotiate_escaping()
+        return Minecraft(conn)
 
 
 # ---- reply parsers (shared by the poll/query methods) -------------------
@@ -284,21 +292,24 @@ def _parse_block_hits(s: str) -> List[BlockEvent]:
     return [BlockEvent.Hit(*map(int, e.split(","))) for e in s.split("|") if e]
 
 
-def _parse_chat_posts(s: str) -> List[ChatEvent]:
+def _parse_chat_posts(s: str, escaping: bool = False) -> List[ChatEvent]:
     out: List[ChatEvent] = []
-    for e in s.split("|"):
+    for e in (_wire.split(s, "|") if escaping else s.split("|")):
         if not e:
             continue
-        comma = e.find(",")
-        out.append(ChatEvent.Post(int(e[:comma]), e[comma + 1:]))
+        if escaping:
+            entity_id, message = _wire.fields(e, maxsplit=1)
+        else:
+            entity_id, _, message = e.partition(",")
+        out.append(ChatEvent.Post(int(entity_id), message))
     return out
 
 
-def _parse_projectile_hits(s: str) -> List[ProjectileEvent]:
+def _parse_projectile_hits(s: str, escaping: bool = False) -> List[ProjectileEvent]:
     out: List[ProjectileEvent] = []
-    for e in s.split("|"):
+    for e in (_wire.split(s, "|") if escaping else s.split("|")):
         if not e:
             continue
-        f = e.split(",")
+        f = _wire.fields(e) if escaping else e.split(",")
         out.append(ProjectileEvent.Hit(int(f[0]), int(f[1]), int(f[2]), int(f[3]), f[4], f[5]))
     return out

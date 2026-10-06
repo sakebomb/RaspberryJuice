@@ -22,9 +22,11 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from . import _wire
 from .connection import Connection, RequestError
 
-__all__ = ["Minecraft", "Player", "World", "Agent", "Entity", "Vec3", "RequestError"]
+__all__ = ["Minecraft", "Player", "World", "Agent", "Entity", "Vec3", "ChatPost", "ProjectileHit",
+           "PlayerAt", "BlockChange", "RequestError"]
 
 
 class Vec3(NamedTuple):
@@ -33,6 +35,42 @@ class Vec3(NamedTuple):
     x: float
     y: float
     z: float
+
+
+class ChatPost(NamedTuple):
+    """A chat message a player posted."""
+
+    entity_id: int
+    message: str
+
+
+class PlayerAt(NamedTuple):
+    """A player at a block position: where they moved or died."""
+
+    x: int
+    y: int
+    z: int
+    name: str
+
+
+class BlockChange(NamedTuple):
+    """A block a player broke or placed."""
+
+    x: int
+    y: int
+    z: int
+    block_id: int
+    name: str
+
+
+class ProjectileHit(NamedTuple):
+    """Where a player's arrow landed, who shot it, and what it hit (empty for a block)."""
+
+    x: int
+    y: int
+    z: int
+    shooter: str
+    target: str
 
 
 def _to_vec3(s: str) -> Vec3:
@@ -55,12 +93,13 @@ class Minecraft:
         """Connect to a server. If it requires an ``auth-token``, pass ``token`` to authenticate
         (raises :class:`RequestError` if the token is rejected)."""
         conn = Connection(host, port)
-        if token:
-            try:
+        try:
+            if token:
                 conn.call("auth", token, sensitive=True)  # -> "1"; RequestError/ConnectionError on failure
-            except BaseException:
-                conn.close()  # don't leak the just-opened socket if the handshake fails
-                raise
+            conn.negotiate_escaping()  # after auth: an unauthenticated session answers Fail
+        except BaseException:
+            conn.close()  # don't leak the just-opened socket if the handshake fails
+            raise
         return cls(conn)
 
     # familiar mcpi-style alias
@@ -130,27 +169,61 @@ class Minecraft:
     def poll_block_hits(self) -> list[str]:
         return _split_events(self.conn.call("events.block.hits"))
 
-    def poll_chat_posts(self) -> list[str]:
-        return _split_events(self.conn.call("events.chat.posts"))
+    def poll_chat_posts(self) -> list[ChatPost]:
+        """Chat messages players posted since the last poll."""
+        out = []
+        for record in self._records("events.chat.posts"):
+            entity_id, message = self._fields(record, maxsplit=1)
+            out.append(ChatPost(int(entity_id), message))
+        return out
 
-    def poll_projectile_hits(self) -> list[str]:
-        return _split_events(self.conn.call("events.projectile.hits"))
+    def poll_projectile_hits(self) -> list[ProjectileHit]:
+        """Arrows players shot since the last poll. ``target`` is empty for a block hit."""
+        out = []
+        for record in self._records("events.projectile.hits"):
+            x, y, z, _face, shooter, target = self._fields(record)
+            out.append(ProjectileHit(int(x), int(y), int(z), shooter, target))
+        return out
 
-    def poll_player_moves(self) -> list[str]:
-        """Positions the player moved into since the last poll: ``x,y,z,name`` each."""
-        return _split_events(self.conn.call("events.player.moves"))
+    def _records(self, command: str) -> list[str]:
+        payload = self.conn.call(command)
+        if not self.conn.escaping:
+            return _split_events(payload)
+        return [r for r in _wire.split(payload, "|") if r]
 
-    def poll_block_breaks(self) -> list[str]:
-        """Blocks players broke: ``x,y,z,block_id,name`` each."""
-        return _split_events(self.conn.call("events.block.breaks"))
+    def _fields(self, record: str, maxsplit: int = -1) -> list[str]:
+        return _wire.fields(record, maxsplit) if self.conn.escaping else record.split(",", maxsplit)
 
-    def poll_block_places(self) -> list[str]:
-        """Blocks players placed: ``x,y,z,block_id,name`` each."""
-        return _split_events(self.conn.call("events.block.places"))
+    def poll_player_moves(self) -> list[PlayerAt]:
+        """Blocks the player moved into since the last poll."""
+        return self._player_events("events.player.moves")
 
-    def poll_player_deaths(self) -> list[str]:
-        """Player deaths: ``x,y,z,name`` each."""
-        return _split_events(self.conn.call("events.player.deaths"))
+    def poll_block_breaks(self) -> list[BlockChange]:
+        """Blocks players broke since the last poll."""
+        return self._block_events("events.block.breaks")
+
+    def poll_block_places(self) -> list[BlockChange]:
+        """Blocks players placed since the last poll."""
+        return self._block_events("events.block.places")
+
+    def poll_player_deaths(self) -> list[PlayerAt]:
+        """Where players died since the last poll."""
+        return self._player_events("events.player.deaths")
+
+    # The name is the last field, so maxsplit keeps any commas in it even on a classic server.
+    def _player_events(self, command: str) -> list[PlayerAt]:
+        out = []
+        for record in self._records(command):
+            x, y, z, name = self._fields(record, maxsplit=3)
+            out.append(PlayerAt(int(x), int(y), int(z), name))
+        return out
+
+    def _block_events(self, command: str) -> list[BlockChange]:
+        out = []
+        for record in self._records(command):
+            x, y, z, block_id, name = self._fields(record, maxsplit=4)
+            out.append(BlockChange(int(x), int(y), int(z), int(block_id), name))
+        return out
 
     def clear_events(self) -> None:
         self.conn.send("events.clear")

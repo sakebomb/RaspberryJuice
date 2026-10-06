@@ -38,8 +38,8 @@ class RemoteSessionDispatchTest {
 		// world & player control
 		"world.setTime", "world.getTime", "world.setWeather", "world.clone",
 		"player.setGameMode", "player.give",
-		// chat + session identity
-		"chat.post", "setPlayer",
+		// chat + session identity + wire options
+		"chat.post", "setPlayer", "protocol.escape",
 		// teacher commands (token-gated)
 		"classroom.freeze", "classroom.unfreeze", "classroom.reset",
 		// event polls

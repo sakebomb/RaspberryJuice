@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Vec3 } from 'vec3';
 
 import { PaperServer } from './lib/server.mjs';
 import { RjSocket } from './lib/socket.mjs';
@@ -173,6 +174,50 @@ async function teacherToken(server, { sa }) {
 	check('no token or guess reaches the log', !server.lines.some((l) => l.includes(TOKEN) || l.includes('wrong-')));
 }
 
+/** Calls {@code line} until the reply is non-empty; for event polls that wait on the server. */
+async function pollUntil(sock, line, timeoutMs = 5_000) {
+	const deadline = Date.now() + timeoutMs;
+	let got;
+	do {
+		got = await sock.call(line);
+		if (got) return got;
+		await sleep(200);
+	} while (Date.now() < deadline);
+	return got;
+}
+
+// Commas and pipes in free text (#59). Alice's socket opts into escaping; Bob's stays classic.
+async function wireText({ alice, sa, sb }) {
+	check('protocol.escape(1) answers 1', (await sa.call('protocol.escape(1)')) === '1');
+
+	sa.send(`world.setSign(1,${Y + 1},1,63,0,Hi\\, there,a \\| b,(ok))`);
+	await waitForBlock(alice, 1, Y + 1, 1, 5_000);
+	let front;
+	const deadline = Date.now() + 5_000;
+	do {
+		front = alice.blockAt(new Vec3(1, Y + 1, 1))?.getSignText?.()[0];
+		if (front?.startsWith('Hi')) break;
+		await sleep(200);
+	} while (Date.now() < deadline);
+	check('escaped sign lines keep commas, pipes and parens',
+		front?.split('\n').slice(0, 3).join('/') === 'Hi, there/a | b/(ok)', JSON.stringify(front));
+
+	const pig = await sa.call(`world.spawnEntity(4,${Y},4,${PIG})`);
+	sa.send(`entity.setName(${pig},Bob\\, the \\| Builder)`);
+	check('escaped custom name round-trips', (await sa.call(`entity.getName(${pig})`)) === 'Bob\\, the \\| Builder');
+
+	const aliceId = await sa.call('world.getPlayerId(Alice)');
+	sa.send('events.clear()');
+	await sa.sync(); // the clear runs on a later tick and must not wipe the chat below
+	alice.chat('gg | wp, ok');
+	const post = await pollUntil(sa, 'events.chat.posts()');
+	check('chat event escapes the message', post === `${aliceId},gg \\| wp\\, ok`, JSON.stringify(post));
+
+	const bobPig = await sb.call(`world.spawnEntity(13,${Y},5,${PIG})`);
+	sb.send(`entity.setName(${bobPig},Bob, the Builder)`);
+	check('classic setName keeps commas', (await sb.call(`entity.getName(${bobPig})`)) === 'Bob, the Builder');
+}
+
 async function main() {
 	const server = new PaperServer(join(HERE, '.server'), { mcPort: MC_PORT, rjPort: RJ_PORT });
 	let world = null;
@@ -191,6 +236,7 @@ async function main() {
 		await freeze(server, world);
 		await reset(server, world);
 		await teacherToken(server, world);
+		await wireText(world);
 		const errors = server.logSince(booted).filter((l) => SERVER_ERROR.test(l));
 		check('no server errors after boot', errors.length === 0, errors.slice(0, 5).join(' | '));
 	} catch (err) {

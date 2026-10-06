@@ -100,6 +100,14 @@ Beyond the core mcpi calls above, these are registered too (the definitive list 
    event streams; Python: `mc.set_player("Alice")`). With `player-tokens` configured the bind is
    fail-closed and needs that player's token — see [SECURITY.md](SECURITY.md).
 
+**Text with commas and pipes**
+
+ - protocol.escape(1|0) - turn escaping of free text on or off for this connection. Replies `1`;
+   an older server replies `Fail`. Once on, `\,` `\|` and `\\` stand for `,` `|` and `\` inside
+   a value, both in arguments (chat, sign lines, names) and in replies (chat events, projectile
+   names, `entity.getName`). Both Python clients turn it on automatically. Without it, the
+   classic protocol is unchanged.
+
 **Teacher commands** (off unless `classroom-teacher-token` is set)
 
  - classroom.freeze(name,token) / classroom.unfreeze(name,token) / classroom.reset(name,token) -
@@ -123,7 +131,8 @@ can't move or kill another client's mobs - reads are open, mutation is owner-onl
  - entity.lookAt(id,x,y,z) - turn the entity to face a point
  - entity.getHealth(id) - the entity's current health (or `Fail` if not a living entity)
  - entity.setHealth(id,health) - set health, clamped to [0, max]
- - entity.setName(id,name) - set a visible name tag (name is a single token, no commas)
+ - entity.setName(id,name) - set a visible name tag. Everything after the id is the name, commas
+   included.
  - entity.setAI(id,0|1) - disable/enable the mob's AI (freeze or free it)
 
 ### World & player control

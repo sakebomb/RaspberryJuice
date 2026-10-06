@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This project roughly fo
 
 ## [Unreleased]
 
+### Fixed
+- **Commas and pipes in free text.** A connection that sends `protocol.escape(1)` gets exact
+  text in both directions: chat, sign lines, mob names, chat events and projectile names keep
+  their `,` and `|`. Both Python clients opt in automatically and fall back on an older server.
+  Classic `mcpi` scripts are unchanged, except that `entity.setName` now keeps commas. (#59)
+
+### Changed
+- **`raspberryjuice` client:** the event polls that carry a name or message return typed
+  records instead of raw strings: `ChatPost`, `ProjectileHit`, `PlayerAt` (moves, deaths) and
+  `BlockChange` (breaks, places). `poll_block_hits()` is unchanged. (#59)
+
 ## [2.1.0] — 2026-10-05
 
 The "programmable education platform" work — turning RaspberryJuice into a STEM teaching tool,

@@ -156,6 +156,9 @@ public class RemoteSession {
 	private int authFailures = 0;
 	private static final int MAX_AUTH_FAILURES = 3;
 
+	// protocol.escape(1) opts this session into WireText escaping of free text (#59)
+	private boolean escapeText = false;
+
 	// consecutive failed setPlayer authorizations (only counted when player-tokens is configured);
 	// reset by a successful bind. Closes the connection at the threshold to stop token brute-forcing,
 	// mirroring the auth handshake's lockout. Only meaningful when per-player authz is on. #51
@@ -362,8 +365,9 @@ public class RemoteSession {
 			return;
 		}
 		String methodName = line.substring(0, openParen);
-		// split args on commas (note: commas inside argument values are not escaped)
-		String[] args = line.substring(openParen + 1, line.length() - 1).split(",");
+		// split args on commas; only a session that opted into escaping can put one in a value
+		String argText = line.substring(openParen + 1, line.length() - 1);
+		String[] args = escapeText ? WireText.splitArgs(argText) : argText.split(",");
 		handleCommand(methodName, args);
 	}
 
@@ -459,6 +463,7 @@ public class RemoteSession {
 		// chat + session identity
 		r.put("chat.post", this::cmdChatPost);
 		r.put("setPlayer", this::cmdSetPlayer);
+		r.put("protocol.escape", this::cmdProtocolEscape);
 
 		// teacher commands, authorized by classroom-teacher-token (#18)
 		r.put("classroom.freeze", this::cmdClassroomFreeze);
@@ -615,9 +620,9 @@ public class RemoteSession {
 		} else if (e instanceof Player) {
 			Player p = (Player) e;
 			//sending list name because plugin.getNamedPlayer() uses list name
-			send(PlainText.plain(p.playerListName()));
+			send(wireText(PlainText.plain(p.playerListName())));
 		} else if (e != null) {
-			send(e.getName());
+			send(wireText(e.getName()));
 		}
 	}
 
@@ -668,6 +673,22 @@ public class RemoteSession {
 		chatMessage = chatMessage.substring(0, chatMessage.length() - 1);
 		//interpret legacy section (§) colour codes so chat.post renders as it did with broadcastMessage(String)
 		server.broadcast(PlainText.legacy(chatMessage));
+	}
+
+	// protocol.escape(1|0): turn WireText escaping of free text on or off for this session (#59).
+	// Replies "1" so a client can tell this server supports it; an older server replies "Fail".
+	void cmdProtocolEscape(String[] args, World world, Server server) {
+		if (!"1".equals(args[0]) && !"0".equals(args[0])) {
+			send("Fail");
+			return;
+		}
+		escapeText = "1".equals(args[0]);
+		send("1");
+	}
+
+	// A free-text value as it goes on the wire: escaped if this session opted in, else as is.
+	private String wireText(String value) {
+		return escapeText ? WireText.escape(value) : value;
 	}
 
 	// setPlayer(name[,token]): bind this connection to a named online player. Drives both command
@@ -1125,7 +1146,7 @@ public class RemoteSession {
 			RecordedEvent e = it.next();
 			b.append(geometry.blockLocationToRelative(e.loc));
 			if (e.blockId >= 0) b.append(",").append(e.blockId);
-			b.append(",").append(e.playerName).append("|");
+			b.append(",").append(wireText(e.playerName)).append("|");
 			it.remove();
 		}
 		if (b.length() > 0) b.deleteCharAt(b.length() - 1);
@@ -1287,12 +1308,15 @@ public class RemoteSession {
 		}
 	}
 
-	// entity.setName(id,name) - visible name tag (name is a single token, no commas)
+	// entity.setName(id,name) - visible name tag. The name is everything after the id, re-joined,
+	// so a classic client's unescaped commas stay in the name like chat.post's do (#59).
 	void cmdEntitySetName(String[] args, World world, Server server) {
+		if (args.length < 2) throw new IllegalArgumentException("entity.setName needs an id and a name");
 		Entity e = controllableEntity(args[0]);
 		if (e != null) {
 			if (rejectSandbox(e.getLocation(), "entity.setName", false)) return;
-			e.customName(Component.text(args[1]));
+			String name = String.join(",", java.util.Arrays.copyOfRange(args, 1, args.length));
+			e.customName(Component.text(name));
 			e.setCustomNameVisible(true);
 		} else {
 			entitySkipped("entity.setName", args[0], false);
@@ -1770,7 +1794,7 @@ public class RemoteSession {
 		"entity.getHealth", "entity.getEntities", "entity.getName",
 		"player.getTile", "player.getPos", "player.getAbsPos", "player.getDirection",
 		"player.getRotation", "player.getPitch", "player.getEntities",
-		"setPlayer", "chat.post",
+		"setPlayer", "chat.post", "protocol.escape",
 		"events.block.hits", "events.chat.posts", "events.projectile.hits",
 		"events.player.moves", "events.block.places", "events.block.breaks", "events.player.deaths",
 		"entity.events.block.hits", "entity.events.chat.posts", "entity.events.projectile.hits",
@@ -2104,7 +2128,7 @@ public class RemoteSession {
 			if (entityId == -1 || event.getPlayer().getEntityId() == entityId) {
 				b.append(event.getPlayer().getEntityId());
 				b.append(",");
-				b.append(PlainText.plain(event.message()));
+				b.append(wireText(PlainText.plain(event.message())));
 				b.append("|");
 				iter.remove();
 			}
@@ -2136,15 +2160,15 @@ public class RemoteSession {
 					b.append(",");
 					b.append(1); //blockFaceToNotch(event.getBlockFace()), but don't really care
 					b.append(",");
-					b.append(PlainText.plain(player.playerListName()));
+					b.append(wireText(PlainText.plain(player.playerListName())));
 					b.append(",");
 					Entity hitEntity = event.getHitEntity();
 					if(hitEntity!=null){
 						if(hitEntity instanceof Player){	
 							Player hitPlayer = (Player)hitEntity;
-							b.append(PlainText.plain(hitPlayer.playerListName()));
+							b.append(wireText(PlainText.plain(hitPlayer.playerListName())));
 						}else{
-							b.append(hitEntity.getName());
+							b.append(wireText(hitEntity.getName()));
 						}
 					}
 				}

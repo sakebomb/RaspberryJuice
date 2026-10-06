@@ -29,11 +29,35 @@ class Connection:
 
     RequestFailed = "Fail"
 
+    # an older server answers protocol.escape with Fail within a tick; this only guards against
+    # a server that never answers at all
+    HANDSHAKE_TIMEOUT = 5.0
+
     def __init__(self, address: str = "localhost", port: int = 4711) -> None:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((address, port))
         self._buffer = b""
         self.lastSent = ""
+        self.escaping = False
+
+    def negotiate_escaping(self) -> bool:
+        """Ask the server to escape free text (``protocol.escape(1)``), so commas and pipes in
+        chat, names and signs survive. An older server says no and the classic protocol stays.
+
+        No answer at all is fatal: a late "1" would leave the server escaping while this client
+        is not, so text would be silently mangled."""
+        self.socket.settimeout(self.HANDSHAKE_TIMEOUT)
+        try:
+            self.escaping = self.send_receive("protocol.escape", 1) == "1"
+        except RequestError:
+            self.escaping = False
+        except socket.timeout:
+            self.close()
+            raise ConnectionError("the server did not answer protocol.escape; is it RaspberryJuice?")
+        finally:
+            if self.socket.fileno() != -1:
+                self.socket.settimeout(None)
+        return self.escaping
 
     def drain(self) -> None:
         """Discard bytes that have already arrived (a best-effort clear of a buffered stray reply;
@@ -48,7 +72,7 @@ class Connection:
 
     def send(self, func: str, *data: object) -> None:
         """Send a fire-and-forget command (no reply expected)."""
-        line = f"{func}({_flatten_args(data)})"
+        line = f"{func}({_flatten_args(data, self.escaping)})"
         self.drain()  # clear any stray reply from a prior unsupported command
         self.lastSent = line
         self.socket.sendall((line + "\n").encode("utf-8"))
@@ -87,8 +111,12 @@ class Connection:
         return line.decode("utf-8")
 
 
-def _flatten_args(data: object) -> str:
-    """Flatten nested args (Vec3/list/loose numbers) to a comma-joined wire string."""
-    from .util import flatten_to_string
+def _flatten_args(data: object, escaping: bool = False) -> str:
+    """Flatten nested args (Vec3/list/loose numbers) to a comma-joined wire string, escaping
+    each value when the server agreed to it."""
+    from . import _wire
+    from .util import flatten, flatten_to_string
 
-    return flatten_to_string(data)
+    if not escaping:
+        return flatten_to_string(data)
+    return ",".join(_wire.escape(str(e)) for e in flatten(data))
