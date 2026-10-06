@@ -26,7 +26,7 @@ from . import _wire
 from .connection import Connection, RequestError
 
 __all__ = ["Minecraft", "Player", "World", "Agent", "Entity", "Vec3", "ChatPost", "ProjectileHit",
-           "RequestError"]
+           "PlayerAt", "BlockChange", "RequestError"]
 
 
 class Vec3(NamedTuple):
@@ -42,6 +42,25 @@ class ChatPost(NamedTuple):
 
     entity_id: int
     message: str
+
+
+class PlayerAt(NamedTuple):
+    """A player at a block position: where they moved or died."""
+
+    x: int
+    y: int
+    z: int
+    name: str
+
+
+class BlockChange(NamedTuple):
+    """A block a player broke or placed."""
+
+    x: int
+    y: int
+    z: int
+    block_id: int
+    name: str
 
 
 class ProjectileHit(NamedTuple):
@@ -175,21 +194,36 @@ class Minecraft:
     def _fields(self, record: str, maxsplit: int = -1) -> list[str]:
         return _wire.fields(record, maxsplit) if self.conn.escaping else record.split(",", maxsplit)
 
-    def poll_player_moves(self) -> list[str]:
-        """Positions the player moved into since the last poll: ``x,y,z,name`` each."""
-        return _split_events(self.conn.call("events.player.moves"))
+    def poll_player_moves(self) -> list[PlayerAt]:
+        """Blocks the player moved into since the last poll."""
+        return self._player_events("events.player.moves")
 
-    def poll_block_breaks(self) -> list[str]:
-        """Blocks players broke: ``x,y,z,block_id,name`` each."""
-        return _split_events(self.conn.call("events.block.breaks"))
+    def poll_block_breaks(self) -> list[BlockChange]:
+        """Blocks players broke since the last poll."""
+        return self._block_events("events.block.breaks")
 
-    def poll_block_places(self) -> list[str]:
-        """Blocks players placed: ``x,y,z,block_id,name`` each."""
-        return _split_events(self.conn.call("events.block.places"))
+    def poll_block_places(self) -> list[BlockChange]:
+        """Blocks players placed since the last poll."""
+        return self._block_events("events.block.places")
 
-    def poll_player_deaths(self) -> list[str]:
-        """Player deaths: ``x,y,z,name`` each."""
-        return _split_events(self.conn.call("events.player.deaths"))
+    def poll_player_deaths(self) -> list[PlayerAt]:
+        """Where players died since the last poll."""
+        return self._player_events("events.player.deaths")
+
+    # The name is the last field, so maxsplit keeps any commas in it even on a classic server.
+    def _player_events(self, command: str) -> list[PlayerAt]:
+        out = []
+        for record in self._records(command):
+            x, y, z, name = self._fields(record, maxsplit=3)
+            out.append(PlayerAt(int(x), int(y), int(z), name))
+        return out
+
+    def _block_events(self, command: str) -> list[BlockChange]:
+        out = []
+        for record in self._records(command):
+            x, y, z, block_id, name = self._fields(record, maxsplit=4)
+            out.append(BlockChange(int(x), int(y), int(z), int(block_id), name))
+        return out
 
     def clear_events(self) -> None:
         self.conn.send("events.clear")

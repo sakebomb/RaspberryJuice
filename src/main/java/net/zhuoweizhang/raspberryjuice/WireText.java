@@ -18,7 +18,11 @@ public final class WireText {
 	private WireText() {
 	}
 
-	/** Split a command's argument text on unescaped commas and decode each argument. */
+	/**
+	 * Split a command's argument text on unescaped commas and decode each argument. Trailing empty
+	 * arguments are dropped, as {@link String#split(String)} drops them in classic mode, so a
+	 * command parses the same way whether or not the session opted in.
+	 */
 	public static String[] splitArgs(String text) {
 		List<String> args = new ArrayList<>();
 		StringBuilder current = new StringBuilder();
@@ -34,6 +38,7 @@ public final class WireText {
 			}
 		}
 		args.add(current.toString());
+		while (args.size() > 1 && args.get(args.size() - 1).isEmpty()) args.remove(args.size() - 1);
 		return args.toArray(new String[0]);
 	}
 

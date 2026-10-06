@@ -29,9 +29,11 @@ class WireTextTest {
 	}
 
 	@Test
-	void splitArgs_keepsEmptyFields() {
-		assertArrayEquals(new String[] {"a", "", "b", ""}, WireText.splitArgs("a,,b,"));
+	void splitArgs_dropsTrailingEmptyFieldsLikeTheClassicSplit() {
+		assertArrayEquals("a,,b,,".split(","), WireText.splitArgs("a,,b,,"));
+		assertArrayEquals(new String[] {"a", "", "b"}, WireText.splitArgs("a,,b,,"));
 		assertArrayEquals(new String[] {""}, WireText.splitArgs(""));
+		assertArrayEquals(new String[] {"a", ","}, WireText.splitArgs("a,\\,,"));
 	}
 
 	@Test
@@ -42,7 +44,7 @@ class WireTextTest {
 
 	@Test
 	void escapeThenSplit_roundTripsAnyText() {
-		for (String text : new String[] {"", "a,b", "|", "\\", "\\,", "x\\|y,z|", "Bob, the|Builder\\"}) {
+		for (String text : new String[] {"a,b", "|", "\\", "\\,", "x\\|y,z|", "Bob, the|Builder\\", "end,"}) {
 			assertArrayEquals(new String[] {text}, WireText.splitArgs(WireText.escape(text)), text);
 		}
 	}

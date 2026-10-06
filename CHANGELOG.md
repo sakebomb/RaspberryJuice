@@ -12,8 +12,9 @@ All notable changes to this project are documented here. This project roughly fo
   Classic `mcpi` scripts are unchanged, except that `entity.setName` now keeps commas. (#59)
 
 ### Changed
-- **`raspberryjuice` client:** `poll_chat_posts()` and `poll_projectile_hits()` return
-  `ChatPost` and `ProjectileHit` records instead of raw strings. (#59)
+- **`raspberryjuice` client:** the event polls that carry a name or message return typed
+  records instead of raw strings: `ChatPost`, `ProjectileHit`, `PlayerAt` (moves, deaths) and
+  `BlockChange` (breaks, places). `poll_block_hits()` is unchanged. (#59)
 
 ## [2.1.0] — 2026-10-05
 

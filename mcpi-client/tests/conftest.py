@@ -48,7 +48,7 @@ class FakeServer:
                 line = line.rstrip("\n")
                 func = line.split("(", 1)[0]
                 (self.handshakes if func == "protocol.escape" else self.received).append(line)
-                if func in self.responses:
+                if self.responses.get(func) is not None:
                     f.write(self.responses[func] + "\n")
                     f.flush()
 

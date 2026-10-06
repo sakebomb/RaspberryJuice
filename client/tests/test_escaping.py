@@ -2,7 +2,7 @@
 
 import pytest
 
-from raspberryjuice import ChatPost, ProjectileHit, _wire
+from raspberryjuice import BlockChange, ChatPost, PlayerAt, ProjectileHit, _wire
 
 
 # ---- the escape rules -------------------------------------------------------
@@ -59,6 +59,23 @@ def test_text_arguments_are_escaped(server_and_mc):
 def test_chat_posts_decode_text(server_and_mc):
     srv, mc = server_and_mc({"protocol.escape": "1", "events.chat.posts": "7,gg \\| wp\\, ok|8,second"})
     assert mc.poll_chat_posts() == [ChatPost(7, "gg | wp, ok"), ChatPost(8, "second")]
+
+
+@pytest.mark.parametrize("escape", ["1", "Fail"])
+def test_player_events_are_typed(server_and_mc, escape):
+    name = "a\\|b\\,c\\\\d" if escape == "1" else "Alice"
+    expected = "a|b,c\\d" if escape == "1" else "Alice"
+    srv, mc = server_and_mc({
+        "protocol.escape": escape,
+        "events.player.moves": f"1,2,3,{name}|4,5,6,{name}",
+        "events.player.deaths": f"7,8,9,{name}",
+        "events.block.breaks": f"1,2,3,41,{name}",
+        "events.block.places": f"4,5,6,1,{name}",
+    })
+    assert mc.poll_player_moves() == [PlayerAt(1, 2, 3, expected), PlayerAt(4, 5, 6, expected)]
+    assert mc.poll_player_deaths() == [PlayerAt(7, 8, 9, expected)]
+    assert mc.poll_block_breaks() == [BlockChange(1, 2, 3, 41, expected)]
+    assert mc.poll_block_places() == [BlockChange(4, 5, 6, 1, expected)]
 
 
 def test_projectile_hits_decode_names(server_and_mc):

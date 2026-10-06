@@ -42,14 +42,21 @@ class Connection:
 
     def negotiate_escaping(self) -> bool:
         """Ask the server to escape free text (``protocol.escape(1)``), so commas and pipes in
-        chat, names and signs survive. An older server says no and the classic protocol stays."""
+        chat, names and signs survive. An older server says no and the classic protocol stays.
+
+        No answer at all is fatal: a late "1" would leave the server escaping while this client
+        is not, so text would be silently mangled."""
         self.socket.settimeout(self.HANDSHAKE_TIMEOUT)
         try:
             self.escaping = self.send_receive("protocol.escape", 1) == "1"
-        except (RequestError, socket.timeout):
+        except RequestError:
             self.escaping = False
+        except socket.timeout:
+            self.close()
+            raise ConnectionError("the server did not answer protocol.escape; is it RaspberryJuice?")
         finally:
-            self.socket.settimeout(None)
+            if self.socket.fileno() != -1:
+                self.socket.settimeout(None)
         return self.escaping
 
     def drain(self) -> None:

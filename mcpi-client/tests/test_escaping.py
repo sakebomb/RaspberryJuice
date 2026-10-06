@@ -32,6 +32,14 @@ def test_new_server_turns_escaping_on(server_and_mc):
     assert mc.conn.escaping
 
 
+def test_silent_server_fails_the_connect(server_and_mc, monkeypatch):
+    from mcpi.connection import Connection
+
+    monkeypatch.setattr(Connection, "HANDSHAKE_TIMEOUT", 0.2)
+    with pytest.raises(ConnectionError, match="protocol.escape"):
+        server_and_mc({"protocol.escape": None})
+
+
 def test_older_server_keeps_the_classic_protocol(server_and_mc):
     srv, mc = server_and_mc()
     assert not mc.conn.escaping

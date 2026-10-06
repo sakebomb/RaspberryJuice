@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from raspberryjuice import ChatPost, Minecraft, ProjectileHit, Vec3, blocks
+from raspberryjuice import BlockChange, ChatPost, Minecraft, PlayerAt, ProjectileHit, Vec3, blocks
 from raspberryjuice.connection import RequestError
 
 
@@ -241,6 +241,6 @@ def test_reactive_events(server_and_mc):
         "events.block.breaks": "1,5,1,1,Bob",
         "events.player.deaths": "7,63,8,Dan",
     })
-    assert mc.poll_player_moves() == ["3,64,-2,Alice", "4,64,-2,Alice"]
-    assert mc.poll_block_breaks() == ["1,5,1,1,Bob"]
-    assert mc.poll_player_deaths() == ["7,63,8,Dan"]
+    assert mc.poll_player_moves() == [PlayerAt(3, 64, -2, "Alice"), PlayerAt(4, 64, -2, "Alice")]
+    assert mc.poll_block_breaks() == [BlockChange(1, 5, 1, 1, "Bob")]
+    assert mc.poll_player_deaths() == [PlayerAt(7, 63, 8, "Dan")]
