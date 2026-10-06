@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This project roughly fo
 
 ## [Unreleased]
 
+### Added
+- **Classroom startup log.** On enable, the server log says whether the classroom sandbox is on,
+  with the number of valid plots and skipped keys, so a teacher can confirm the config took
+  effect without connecting a client. (#86)
+
 ### Fixed
 - **Commas and pipes in free text.** A connection that sends `protocol.escape(1)` gets exact
   text in both directions: chat, sign lines, mob names, chat events and projectile names keep

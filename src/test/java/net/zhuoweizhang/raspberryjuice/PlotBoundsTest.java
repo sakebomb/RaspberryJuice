@@ -96,6 +96,32 @@ class PlotBoundsTest {
 		assertTrue(parsed.warnings.stream().anyMatch(w -> w.contains("Bob")));
 	}
 
+	// #86: one enable-time line says whether the classroom config took effect
+	@Test
+	void summary_off() throws Exception {
+		YamlConfiguration cfg = new YamlConfiguration();
+		cfg.loadFromString("plots: {}\n");
+		assertEquals("Classroom sandbox off: no plots configured.", PlotBounds.readPlots(cfg).summary());
+	}
+
+	@Test
+	void summary_onCountsValidAndSkippedKeys() throws Exception {
+		YamlConfiguration cfg = new YamlConfiguration();
+		cfg.loadFromString("plots:\n  Alice: [0, 0, 0, 7, 5, 7]\n  Bob: [10, 0, 0, 17, 5, 7]\n  Cara: [1, 2, 3]\n");
+		assertEquals("Classroom sandbox on: 2 valid plots, 1 skipped key.", PlotBounds.readPlots(cfg).summary());
+
+		YamlConfiguration one = new YamlConfiguration();
+		one.loadFromString("plots:\n  Alice: [0, 0, 0, 7, 5, 7]\n");
+		assertEquals("Classroom sandbox on: 1 valid plot, 0 skipped keys.", PlotBounds.readPlots(one).summary());
+	}
+
+	@Test
+	void summary_nonMapIsOnWithNoPlots() throws Exception {
+		YamlConfiguration cfg = new YamlConfiguration();
+		cfg.loadFromString("plots: []\n");
+		assertEquals("Classroom sandbox on: 0 valid plots, 0 skipped keys.", PlotBounds.readPlots(cfg).summary());
+	}
+
 	@Test
 	void readPlots_nonMap_isOnAndEmpty() throws Exception {
 		for (String yaml : new String[] { "plots: []\n", "plots: Alice\n", "plots: 1\n" }) {
