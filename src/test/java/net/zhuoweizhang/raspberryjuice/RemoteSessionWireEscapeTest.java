@@ -154,6 +154,14 @@ class RemoteSessionWireEscapeTest {
 	}
 
 	@Test
+	void playerEvents_escapeTheListName() throws Exception {
+		RemoteSession s = escapingSession();
+		s.blockPlaceQueue.add(new RemoteSession.RecordedEvent(new Location(world, 2, 6, 3), "Ann|A, B", 41));
+		s.handleLine("events.block.places()");
+		assertEquals("2,6,3,41,Ann\\|A\\, B", lastSent(s));
+	}
+
+	@Test
 	void chatPosts_classicSessionGetsRawText() throws Exception {
 		RemoteSession s = session();
 		s.queueChatPostedEvent(chat("gg, wp"));

@@ -63,8 +63,9 @@ def test_chat_posts_decode_text(server_and_mc):
 
 @pytest.mark.parametrize("escape", ["1", "Fail"])
 def test_player_events_are_typed(server_and_mc, escape):
-    name = "a\\|b\\,c\\\\d" if escape == "1" else "Alice"
-    expected = "a|b,c\\d" if escape == "1" else "Alice"
+    # a classic server can't carry "|" in a name, but a comma survives because it's the last field
+    name = "a\\|b\\,c\\\\d" if escape == "1" else "Al, ice"
+    expected = "a|b,c\\d" if escape == "1" else "Al, ice"
     srv, mc = server_and_mc({
         "protocol.escape": escape,
         "events.player.moves": f"1,2,3,{name}|4,5,6,{name}",
