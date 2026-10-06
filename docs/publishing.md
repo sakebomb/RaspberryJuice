@@ -38,7 +38,7 @@ upload for that one (`skip-existing`).
 3. Add the secret `HANGAR_API_KEY`, plus the variable `HANGAR_PROJECT` set to the project slug.
 
 To test the upload by hand: `HANGAR_API_KEY=… HANGAR_PROJECT=… scripts/hangar-publish.sh
-target/raspberryjuice-2.1.0.jar 2.1.0 26.2`.
+target/raspberryjuice-2.1.1.jar 2.1.1 26.2`.
 
 ### PyPI
 
@@ -53,9 +53,9 @@ target/raspberryjuice-2.1.0.jar 2.1.0 26.2`.
 
 ## Publishing an existing release
 
-To publish a tag that was released before a registry was set up (for example, v2.1.0), run
-**Actions → Release → Run workflow** on `master` with that tag as input, or run
-`gh workflow run release.yml --ref master -f tag=v2.1.0`. Run it from `master`, not from the
+To publish a tag that was released before a registry was set up (for example, v2.1.1, the first
+release with this workflow), run **Actions → Release → Run workflow** on `master` with that tag
+as input, or run `gh workflow run release.yml --ref master -f tag=v2.1.1`. Run it from `master`, not from the
 tag: the workflow and the Hangar script come from the selected ref, and older tags don't have
 them. It rebuilds from the tag and publishes to every configured registry. It does not touch
 the existing GitHub Release.
