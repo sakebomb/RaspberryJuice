@@ -32,7 +32,7 @@ class RemoteSessionBlockBudgetTest {
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
 
-		RemoteSession s = new RemoteSession(plugin, socket);
+		RemoteSession s = new QuietSession(plugin, socket);
 		s.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		return s;
 	}
@@ -79,12 +79,12 @@ class RemoteSessionBlockBudgetTest {
 		Socket socket = mock(Socket.class);
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
-		RemoteSession off = new RemoteSession(plugin, socket);
+		RemoteSession off = new QuietSession(plugin, socket);
 		off.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		assertTrue(off.reserveBlockBudget(101), "sandbox knob is ignored while the sandbox is off");
 
 		when(plugin.isSandboxEnabled()).thenReturn(true);
-		RemoteSession on = new RemoteSession(plugin, socket);
+		RemoteSession on = new QuietSession(plugin, socket);
 		on.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		assertTrue(on.reserveBlockBudget(60));
 		assertFalse(on.reserveBlockBudget(60), "120 would pass the global budget and fail the sandbox cap");

@@ -28,7 +28,7 @@ class RemoteSessionLimitTest {
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
 
-		RemoteSession s = new RemoteSession(plugin, socket);
+		RemoteSession s = new QuietSession(plugin, socket);
 		s.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		return s;
 	}
@@ -78,7 +78,7 @@ class RemoteSessionLimitTest {
 		Socket socket = mock(Socket.class);
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
-		RemoteSession off = new RemoteSession(plugin, socket);
+		RemoteSession off = new QuietSession(plugin, socket);
 		off.setOrigin(new Location(mock(World.class), 0, 0, 0));
 		// 10*1*10 = 100, under max-blocks and over the sandbox knob that must be ignored.
 		assertFalse(off.exceedsBlockLimit(at(0, 0, 0), at(9, 0, 9)));
@@ -121,8 +121,6 @@ class RemoteSessionLimitTest {
 		Socket socket = mock(Socket.class);
 		when(socket.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
 		when(socket.getOutputStream()).thenReturn(new ByteArrayOutputStream());
-		// A live session starts threads that call getLogger. A later when().thenReturn
-		// can record that call and stub getLogger to return the int. Keep them quiet.
 		RemoteSession off = new QuietSession(plugin, socket);
 		assertEquals(9000, off.maxCommandsPerTickForTest());
 
@@ -133,15 +131,6 @@ class RemoteSessionLimitTest {
 		when(plugin.getSandboxMaxCommandsPerTick()).thenReturn(0);
 		RemoteSession unlimited = new QuietSession(plugin, socket);
 		assertEquals(9000, unlimited.maxCommandsPerTickForTest());
-	}
-
-	/** No IO threads, so stubbing the shared plugin mock cannot race getLogger. */
-	private static final class QuietSession extends RemoteSession {
-		QuietSession(RaspberryJuicePlugin plugin, Socket socket) throws Exception {
-			super(plugin, socket);
-		}
-		@Override
-		protected void startThreads() { }
 	}
 
 	@Test
