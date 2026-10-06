@@ -10,7 +10,8 @@ plots two blocks apart. The test then checks:
 - socket reads, writes and spawns across plots;
 - breaking and placing blocks by hand across plots;
 - `/rj freeze`, `/rj unfreeze` and `/rj reset`;
-- the socket `classroom.*` commands with the teacher token, including the audit log and lockout.
+- the socket `classroom.*` commands with the teacher token, including the audit log and lockout;
+- commas and pipes in sign lines, mob names and chat, with and without `protocol.escape`.
 
 For each block check, the test reads the result back through the plot owner's socket.
 

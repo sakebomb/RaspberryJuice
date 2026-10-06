@@ -58,6 +58,10 @@ common single-user / classroom-LAN case (server on `localhost`). If your server 
 `auth-token` or per-player `player-tokens`, use the [`raspberryjuice` client](../client) (which
 supports tokens) or tunnel the port; see the server's `SECURITY.md`.
 
+On a RaspberryJuice server that supports it, `Minecraft.create()` turns on text escaping, so
+commas and pipes in chat, signs and names arrive intact. On an older server, sign lines still
+swap `,` for `;` as before.
+
 Pi-only commands that RaspberryJuice never implemented (world checkpoints, camera control) are
 intentionally omitted.
 
