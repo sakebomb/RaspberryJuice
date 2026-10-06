@@ -10,7 +10,7 @@ from .connection import Connection, RequestError
 from .minecraft import (Agent, BlockChange, ChatPost, Entity, Minecraft, Player, PlayerAt,
                         ProjectileHit, Vec3, World)
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 __all__ = [
     "Minecraft",
