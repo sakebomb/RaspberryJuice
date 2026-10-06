@@ -7,7 +7,7 @@
 
 from . import blocks
 from .connection import Connection, RequestError
-from .minecraft import Agent, Entity, Minecraft, Player, Vec3, World
+from .minecraft import Agent, ChatPost, Entity, Minecraft, Player, ProjectileHit, Vec3, World
 
 __version__ = "2.1.0"
 
@@ -18,6 +18,8 @@ __all__ = [
     "Agent",
     "Entity",
     "Vec3",
+    "ChatPost",
+    "ProjectileHit",
     "Connection",
     "RequestError",
     "blocks",

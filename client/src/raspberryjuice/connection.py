@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import socket
 
+from . import _wire
+
 
 class RequestError(RuntimeError):
     """Raised when the server answers ``Fail`` to a command."""
 
 
-def _encode(arg: object) -> str:
+def _encode(arg: object, escaping: bool = False) -> str:
     if isinstance(arg, bool):  # bool is a subclass of int - check it first
         return "1" if arg else "0"
     s = str(arg)
@@ -17,11 +19,11 @@ def _encode(arg: object) -> str:
     # protocol (the server rejects the truncated first line with a stray "Fail"). Fail fast.
     if "\n" in s or "\r" in s:
         raise ValueError("command arguments may not contain newlines")
-    return s
+    return _wire.escape(s) if escaping else s
 
 
-def _join(args: tuple[object, ...]) -> str:
-    return ",".join(_encode(a) for a in args)
+def _join(args: tuple[object, ...], escaping: bool = False) -> str:
+    return ",".join(_encode(a, escaping) for a in args)
 
 
 class Connection:
@@ -38,6 +40,17 @@ class Connection:
         self._sock.settimeout(timeout)
         self._reader = self._sock.makefile("r", encoding="utf-8", newline="\n")
         self._last = ""
+        self.escaping = False
+
+    def negotiate_escaping(self) -> bool:
+        """Ask the server to escape free text (``protocol.escape(1)``), so commas and pipes in
+        chat, names and signs survive. An older server answers ``Fail`` and the classic
+        protocol stays."""
+        try:
+            self.escaping = self.call("protocol.escape", 1) == "1"
+        except RequestError:
+            self.escaping = False
+        return self.escaping
 
     def send(self, func: str, *args: object, sensitive: bool = False) -> None:
         """Send a fire-and-forget command (no response expected).
@@ -47,7 +60,7 @@ class Connection:
         the socket needs, carries them. This keeps a token out of any RequestError /
         ConnectionError text that a traceback, log, or classroom projector might expose.
         """
-        line = f"{func}({_join(args)})"
+        line = f"{func}({_join(args, self.escaping)})"
         # remembered only to describe a failed command; never keep secret args here
         self._last = f"{func}(***)" if sensitive else line
         self._sock.sendall((line + "\n").encode("utf-8"))

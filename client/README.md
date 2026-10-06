@@ -68,6 +68,12 @@ mc.player.give(blocks.DIAMOND_BLOCK, 8)
 ```python
 for hit in mc.poll_block_hits():     # blocks the player hit with a sword
     print("hit:", hit)
+
+for post in mc.poll_chat_posts():    # chat, exactly as typed, commas and all
+    print(post.entity_id, "said", post.message)
+
+for arrow in mc.poll_projectile_hits():
+    print(arrow.shooter, "hit", arrow.target or "a block", "at", arrow.x, arrow.y, arrow.z)
 ```
 
 ## Examples
