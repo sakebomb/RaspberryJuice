@@ -5,6 +5,10 @@ All notable changes to this project are documented here. This project roughly fo
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-10-06
+
+The pre-announcement release: the first published to Modrinth, Hangar and PyPI.
+
 ### Added
 - **Classroom startup log.** On enable, the server log says whether the classroom sandbox is on,
   with the number of valid plots and skipped keys, so a teacher can confirm the config took
@@ -156,6 +160,7 @@ Modernized fork of the end-of-life [zhuowei/RaspberryJuice](https://github.com/z
 - Rebuilt test suite (JUnit 5 + Mockito + MockBukkit) and toolchain (Maven wrapper, no system
   Maven).
 
-[Unreleased]: https://github.com/sakebomb/RaspberryJuice/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/sakebomb/RaspberryJuice/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/sakebomb/RaspberryJuice/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/sakebomb/RaspberryJuice/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/sakebomb/RaspberryJuice/releases/tag/v2.0.0

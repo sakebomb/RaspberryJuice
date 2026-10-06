@@ -239,6 +239,7 @@ The plugin jar is produced at `target/raspberryjuice-*.jar`; drop it in your Pap
 
 ## Version history
 
+ - 2.1.1 - first release on Modrinth, Hangar and PyPI; opt-in `protocol.escape` keeps commas and pipes in chat, signs and names (`entity.setName` keeps commas for every client); typed event records in the Python client; classroom sandbox state logged at startup. See [CHANGELOG](CHANGELOG.md).
  - 2.1.0 - programmable education platform: turtle **agent**, **entity/mob control**, world/player control, reactive events, and a typed **Python client** (`client/`); security hardening (per-session entity ownership incl. bulk removal, `auth-token` handshake, per-player `setPlayer` tokens + brute-force lockout, `enable-op-commands`, per-tick block budget, bounded socket I/O). See [CHANGELOG](CHANGELOG.md).
  - 2.0.0 - modernized fork: runs on Paper 26.2 / Java 25 (down through Paper 1.21); block layer ported off pre-1.13 numeric-ID APIs to Material/BlockData via a legacy-ID bridge (protocol unchanged); Adventure chat/sign APIs; security & concurrency hardening; JUnit 5 + MockBukkit test suite and CI
  - 1.12.1 - hostname specified in config.yml

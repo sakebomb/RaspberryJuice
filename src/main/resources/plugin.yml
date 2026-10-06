@@ -5,7 +5,7 @@ description: Implementation of the Minecraft PI modding API
 main: net.zhuoweizhang.raspberryjuice.RaspberryJuicePlugin
 name: RaspberryJuice
 load: POSTWORLD
-version: '2.1.0'
+version: '2.1.1'
 commands:
   rj:
     description: Freeze, unfreeze, or reset a student's plot. Reset sets the plot to air, including any overlap. There is no undo.
