@@ -230,6 +230,8 @@ async function main() {
 		const booted = server.lines.length;
 		check('ViaVersion is enabled', server.lines.some((l) => /Enabling ViaVersion/.test(l)));
 		check('RaspberryJuice is enabled', server.lines.some((l) => /Enabling RaspberryJuice/.test(l)));
+		check('enable log reports the classroom sandbox',
+			server.lines.some((l) => l.includes('Classroom sandbox on: 2 valid plots, 0 skipped keys.')));
 		world = await setUp(server);
 		await socketFences(world);
 		await handProtection(server, world);

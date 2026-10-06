@@ -331,6 +331,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		for (String warning : plots.warnings) {
 			getLogger().warning(warning);
 		}
+		getLogger().info(plots.summary());
 		sandboxLockWorldRules = this.getConfig().getBoolean("sandbox-lock-world-rules", true);
 		sandboxMaxBlocks = (int) normalizeSandboxCap("sandbox-max-blocks",
 			this.getConfig().getInt("sandbox-max-blocks", 0), getLogger()::warning);

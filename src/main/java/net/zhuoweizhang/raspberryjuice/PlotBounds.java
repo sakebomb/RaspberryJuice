@@ -84,15 +84,29 @@ final class PlotBounds {
 		final boolean enabled;
 		final Map<String, PlotBounds> byName;
 		final List<String> warnings;
+		// plot keys whose value was not six integers, so that student has no plot
+		final int skipped;
 
-		private ParsedPlots(boolean enabled, Map<String, PlotBounds> byName, List<String> warnings) {
+		private ParsedPlots(boolean enabled, Map<String, PlotBounds> byName, List<String> warnings, int skipped) {
 			this.enabled = enabled;
 			this.byName = byName;
 			this.warnings = warnings;
+			this.skipped = skipped;
 		}
 
 		static ParsedPlots off() {
-			return new ParsedPlots(false, Map.of(), List.of());
+			return new ParsedPlots(false, Map.of(), List.of(), 0);
+		}
+
+		/** The enable-time info line, so an operator can see the classroom config took effect (#86). */
+		String summary() {
+			if (!enabled) return "Classroom sandbox off: no plots configured.";
+			return "Classroom sandbox on: " + count(byName.size(), "valid plot") + ", "
+				+ count(skipped, "skipped key") + ".";
+		}
+
+		private static String count(int n, String noun) {
+			return n + " " + noun + (n == 1 ? "" : "s");
 		}
 	}
 
@@ -106,15 +120,17 @@ final class PlotBounds {
 		org.bukkit.configuration.ConfigurationSection section = config.getConfigurationSection("plots");
 		if (section == null) {
 			return new ParsedPlots(true, Map.of(), List.of(
-				"plots is set but is not a map; sandbox is on and every session is plot-less."));
+				"plots is set but is not a map; sandbox is on and every session is plot-less."), 0);
 		}
 		if (section.getKeys(false).isEmpty()) return ParsedPlots.off();
 		Map<String, PlotBounds> byName = new LinkedHashMap<>();
 		List<String> warnings = new ArrayList<>();
+		int skipped = 0;
 		for (String name : section.getKeys(false)) {
 			List<Integer> nums = section.getIntegerList(name);
 			if (nums.size() != 6) {
 				warnings.add("plots." + name + " is not six integers; that student has no plot.");
+				skipped++;
 				continue;
 			}
 			PlotBounds plot = fromCorners(nums.get(0), nums.get(1), nums.get(2),
@@ -125,7 +141,7 @@ final class PlotBounds {
 			}
 		}
 		warnPairs(byName, warnings);
-		return new ParsedPlots(true, Collections.unmodifiableMap(byName), List.copyOf(warnings));
+		return new ParsedPlots(true, Collections.unmodifiableMap(byName), List.copyOf(warnings), skipped);
 	}
 
 	private static void warnPairs(Map<String, PlotBounds> byName, List<String> warnings) {
