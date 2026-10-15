@@ -78,7 +78,16 @@ for arrow in mc.poll_projectile_hits():
 
 ## Examples
 
-See [`examples/`](https://github.com/sakebomb/RaspberryJuice/tree/master/client/examples) — a square, a staircase, and a mob that follows the player.
+Lessons in [`examples/`](https://github.com/sakebomb/RaspberryJuice/tree/master/client/examples), in teaching order. Run one with `python examples/<name>.py` from this directory while a server is listening on `localhost:4711`.
+
+- [`draw_square.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/draw_square.py) — a loop that draws a square with the agent
+- [`staircase.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/staircase.py) — a loop that climbs as it builds
+- [`pyramid.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/pyramid.py) — nested loops that stack a shrinking square
+- [`house.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/house.py) — one function that builds a cottage
+- [`magic_carpet.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/magic_carpet.py) — poll player moves and lay glass underfoot
+- [`door.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/door.py) — poll block hits and toggle a doorway
+- [`pet_follows_you.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/pet_follows_you.py) — a mob that walks toward the player
+- [`reaction.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/reaction.py) — poll chat and time the reply
 
 ## Development
 
