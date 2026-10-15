@@ -24,3 +24,12 @@ def test_lesson_scripts_parse_and_match_the_ladder():
         source = (EXAMPLES / name).read_text()
         ast.parse(source, filename=name)
         assert "raspberryjuice" in source
+
+
+def test_lesson_plan_names_the_ladder_in_order():
+    plan = (EXAMPLES.parent.parent / "docs" / "lessons.md").read_text()
+    cursor = -1
+    for name in LADDER:
+        found = plan.find(name, cursor + 1)
+        assert found > cursor, name
+        cursor = found

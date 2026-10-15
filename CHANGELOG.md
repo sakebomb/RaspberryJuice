@@ -7,6 +7,7 @@ All notable changes to this project are documented here. This project roughly fo
 
 ### Added
 - **Lesson scripts.** Four more runnable lessons in `client/examples/`: a pyramid (nested loops), a house (a function), a door toggled by hitting a gold block, and a reaction game that times a chat reply. (#17)
+- **Lesson plans.** Teacher notes for the eight scripts in `client/examples/`, in teaching order, in [`docs/lessons.md`](docs/lessons.md). (#17)
 
 ## [2.1.1] — 2026-10-06
 
