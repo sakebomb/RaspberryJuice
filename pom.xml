@@ -10,7 +10,7 @@
         <paper.version>26.2.build.129-stable</paper.version>
         <junit.version>6.1.3</junit.version>
         <mockito.version>5.24.0</mockito.version>
-        <mockbukkit.version>4.116.1</mockbukkit.version>
+        <mockbukkit.version>4.117.0</mockbukkit.version>
     </properties>
     <repositories>
         <repository>
