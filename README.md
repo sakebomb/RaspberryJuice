@@ -214,7 +214,8 @@ Modify config.yml:
 Two Python clients ship with this repo:
 
 - **[`client/`](client/)** — a new, typed `raspberryjuice` package with a clean modern API (see
-  [Quickstart](#quickstart)). Best for writing new lessons.
+  [Quickstart](#quickstart)). Best for writing new lessons. The class notes for the
+  eight scripts in `client/examples/` are [Lesson plans](docs/lessons.md).
 - **[`mcpi-client/`](mcpi-client/)** — a modern, drop-in **`mcpi`** package so existing
   Minecraft-Pi curriculum (*Adventures in Minecraft*, Raspberry Pi tutorials) runs unchanged:
   `from mcpi.minecraft import Minecraft`. Best for running material that's already written.

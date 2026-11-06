@@ -78,7 +78,7 @@ for arrow in mc.poll_projectile_hits():
 
 ## Examples
 
-Lessons in [`examples/`](https://github.com/sakebomb/RaspberryJuice/tree/master/client/examples), in teaching order. Run one with `python examples/<name>.py` from this directory while a server is listening on `localhost:4711`.
+Lessons in [`examples/`](https://github.com/sakebomb/RaspberryJuice/tree/master/client/examples), in teaching order. The notes for running them in a class are in [Lesson plans](../docs/lessons.md). Run one with `python examples/<name>.py` from this directory while a server is listening on `localhost:4711`.
 
 - [`draw_square.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/draw_square.py) — a loop that draws a square with the agent
 - [`staircase.py`](https://github.com/sakebomb/RaspberryJuice/blob/master/client/examples/staircase.py) — a loop that climbs as it builds
